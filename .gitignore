@@ -1,2 +1,8 @@
 .venv
 .idea
+datasets
+
+dict_learners/__pycache__/
+graph_encoders/__pycache__/
+implements/__pycache__/
+utils/__pycache__/

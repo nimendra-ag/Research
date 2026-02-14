@@ -8,4 +8,3 @@ class DictLearner(ABC):
     @abstractmethod
     def fit(self):
         pass
-

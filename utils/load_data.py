@@ -6,10 +6,14 @@ from karateclub.dataset import GraphSetReader
 
 
 def load_data(name: str, size: int):
-    """Loads NCI1 dataset"""
+    """
+    Loads dataset
+    nci -> NCI
+    reddit -> reddit10k
+    """
 
-    if name == "nci1":
-        print('Loading NCI1 dataset')
+    if name == "nci":
+        print('Loading NCI dataset')
         DATASET_DIR = "datasets/NCI_full"  # change this
         graphs = []
         y = []
@@ -40,7 +44,7 @@ def load_data(name: str, size: int):
                         )
 
                     # Get graph label
-                    # In NCI1, class label is stored as a molecule property
+                    # In NCI, class label is stored as a molecule property
                     label = int(float(mol.GetProp("value")))
                     graphs.append(G)
                     y.append(label)

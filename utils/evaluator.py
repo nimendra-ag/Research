@@ -5,14 +5,20 @@ from sklearn.metrics import confusion_matrix
 from sklearn.ensemble import GradientBoostingClassifier
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
+from datetime import datetime
+from pathlib import Path
 
 class Evaluator:
-    def __init__(self, X_train, y_train, X_test, y_test, random_state=42):
+    def __init__(
+        self, X_train, y_train, X_test, y_test, dl_model, dataset, random_state=42, timestamp=None):
         self.X_train = X_train
         self.X_test = X_test
         self.y_train = y_train
         self.y_test = y_test
-        # self.split_data()
+        self.dl_model = dl_model
+        self.dataset = dataset
+        self.timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") if timestamp is None else timestamp
 
     # def split_data(self):
     #     self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(self.X, self.y, test_size=0.2, random_state=42)
@@ -35,7 +41,9 @@ class Evaluator:
         plt.ylabel('True Label')
         plt.xlabel('Predicted Label')
         plt.tight_layout()
-        plt.savefig('./cm/confusion_matrix_logistic_regression.png', dpi=300, bbox_inches='tight')
+        path = Path('./cm/{dl_model}_{dataset}_{timestamp}'.format(dl_model=self.dl_model, dataset=self.dataset, timestamp=self.timestamp))
+        os.makedirs(path, exist_ok=True)
+        plt.savefig(path / 'confusion_matrix_logistic_regression.png', dpi=300, bbox_inches='tight')
         plt.show()
         return 'AUC: {:.4f}'.format(auc)
 
@@ -56,6 +64,8 @@ class Evaluator:
         plt.ylabel('True Label')
         plt.xlabel('Predicted Label')
         plt.tight_layout()
-        plt.savefig('./cm/confusion_matrix_gradient_boosting.png', dpi=300, bbox_inches='tight')
+        path = Path('./cm/{dl_model}_{dataset}_{timestamp}'.format(dl_model=self.dl_model, dataset=self.dataset, timestamp=self.timestamp))
+        os.makedirs(path, exist_ok=True)
+        plt.savefig(path / 'confusion_matrix_gradient_boosting.png', dpi=300, bbox_inches='tight')
         plt.show()
         return 'AUC: {:.4f}'.format(auc)

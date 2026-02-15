@@ -1,3 +1,10 @@
+import os
+import sys
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 from dict_learners.bayesian_dl import BAYESIAN_DL
 from graph_encoders.wl import WL
 from utils.load_data import load_data
@@ -5,6 +12,9 @@ from utils.evaluator import Evaluator
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MaxAbsScaler
 
+# Configuration
+DATASET = "reddit"
+MODEL_NAME = "bayesian_dl"
 
 #-------------------------Without overfit protection-------------------------#
 # # load graph data
@@ -25,7 +35,7 @@ from sklearn.preprocessing import MaxAbsScaler
 
 #-------------------------With overfit protection-------------------------#
 # load graph data
-graphs, y = load_data(name="nci", size=2)
+graphs, y = load_data(name=DATASET, size=2)
 
 # First divide the data into train and test sets.
 G_train, G_test, y_train, y_test = train_test_split(graphs, y, test_size=0.2, random_state=42)
@@ -49,7 +59,7 @@ X_ML_train_scaled = scaler.fit_transform(X_ML_train)
 X_ML_test_scaled = scaler.transform(X_ML_test)
 
 # Model evaluation
-evaluator = Evaluator(X_ML_train_scaled, y_ML_train, X_ML_test_scaled, y_test)
+evaluator = Evaluator(X_ML_train_scaled, y_ML_train, X_ML_test_scaled, y_test, dl_model=MODEL_NAME, dataset=DATASET)
 results_logistic_reg = evaluator.predict_logistic_regression()
 print(results_logistic_reg)
 

@@ -1,10 +1,12 @@
 from dict_learners.aksvd import AKSVD
 from graph_encoders.wl import WL
-from utils.load_data import load_data
+from utils.graph_data import GraphDataLoader
 from utils.evaluator import Evaluator
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MaxAbsScaler
 
+
+data_loader = GraphDataLoader()
 
 #-------------------------Without overfit protection-------------------------#
 # # load graph data
@@ -17,7 +19,7 @@ from sklearn.preprocessing import MaxAbsScaler
 # X = aksvd.fit()
 #
 # evaluator = Evaluator(X, y, test_size=0.2)
-#
+
 # results_logistic_reg = evaluator.predict_logistic_regression()
 # print(results_logistic_reg)
 # results_gradient_boosting = evaluator.predict_gradient_boosting()
@@ -25,7 +27,7 @@ from sklearn.preprocessing import MaxAbsScaler
 
 #-------------------------With overfit protection-------------------------#
 # load graph data
-graphs, y = load_data(name="nci", size=2)
+graphs, y = data_loader.nci_full_graphs, data_loader.nci_full_labels
 
 # First divide the data into train and test sets.
 G_train, G_test, y_train, y_test = train_test_split(graphs, y, test_size=0.2, random_state=42)

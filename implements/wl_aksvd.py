@@ -13,7 +13,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MaxAbsScaler
 
 # Configuration
-DATASET = "reddit"
+DATASET = "nci-full"
 MODEL_NAME = "aksvd"
 
 data_loader = GraphDataLoader()

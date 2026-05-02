@@ -15,9 +15,35 @@ class GraphDataLoader:
 
     def __init__(self):
         if not self._initialized:
-            self.nci_full_graphs, self.nci_full_labels = self.load_nci_full()
-            self.reddit10k_graphs, self.reddit10k_labels = self.load_reddit10k()
+            self._nci_full_graphs = None
+            self._nci_full_labels = None
+            self._reddit10k_graphs = None
+            self._reddit10k_labels = None
             self._initialized = True
+
+    @property
+    def nci_full_graphs(self):
+        if self._nci_full_graphs is None:
+            self._nci_full_graphs, self._nci_full_labels = self.load_nci_full()
+        return self._nci_full_graphs
+
+    @property
+    def nci_full_labels(self):
+        if self._nci_full_labels is None:
+            self._nci_full_graphs, self._nci_full_labels = self.load_nci_full()
+        return self._nci_full_labels
+    
+    @property
+    def reddit10k_graphs(self):
+        if self._reddit10k_graphs is None:
+            self._reddit10k_graphs, self._reddit10k_labels = self.load_reddit10k()
+        return self._reddit10k_graphs
+    
+    @property
+    def reddit10k_labels(self):
+        if self._reddit10k_labels is None:
+            self._reddit10k_graphs, self._reddit10k_labels = self.load_reddit10k()
+        return self._reddit10k_labels
 
     def load_nci_full(self, id=1):
         """

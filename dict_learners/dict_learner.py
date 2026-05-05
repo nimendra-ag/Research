@@ -6,6 +6,8 @@ class DictLearner(ABC):
         self.name = name
 
     @abstractmethod
-    def fit(self):
+    def fit(self, training_graph_embeddings):
         pass
 
+    def infer(self, infer_graph_embeddings):
+        pass

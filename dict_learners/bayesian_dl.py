@@ -12,7 +12,7 @@ class BAYESIAN_DL(DictLearner):
     def __init__(
             self,
             dimensions: int = 512,
-            max_iter: int = 100,
+            max_iter: int = 10,
             tol: float = 1e-6,
             noise_precision: float = 1.0,
             auto_prune: bool = True

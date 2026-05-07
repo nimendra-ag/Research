@@ -36,7 +36,7 @@ G_train, G_test, y_train, y_test = train_test_split(graphs, y, test_size=0.2, ra
 G_vocab_train, G_ML_train, y_vocab_train, y_ML_train = train_test_split(G_train, y_train, test_size=0.75, random_state=42)
 
 wl = WL()
-graph_embeddings = wl.generate_training_embeddings(G_vocab_train)
+graph_embeddings = wl.generate_training_embeddings(G_vocab_train, y_train)
 
 aksvd = AKSVD().fit(training_graph_embeddings=graph_embeddings)
 

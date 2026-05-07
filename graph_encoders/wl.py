@@ -1,9 +1,10 @@
 from graph_encoders.graph_encoder import GraphEncoder
 import numpy as np
-from gensim.models.doc2vec import Doc2Vec, TaggedDocument
+from gensim.models.doc2vec import TaggedDocument
 from karateclub.utils.treefeatures import WeisfeilerLehmanHashing
 
-from collections import Counter
+from collections import Counter, defaultdict
+
 
 class WL(GraphEncoder):
     def __init__(
@@ -30,7 +31,12 @@ class WL(GraphEncoder):
         documents = []
         for graph in graphs:
             g = self._check_graph(graph)
-            document = WeisfeilerLehmanHashing(g, self.wl_iterations, self.attributed, self.erase_base_features)
+            document = WeisfeilerLehmanHashing(
+                g,
+                self.wl_iterations,
+                self.attributed,
+                self.erase_base_features
+            )
             documents.append(document)
 
         documents = [
@@ -40,50 +46,61 @@ class WL(GraphEncoder):
 
         return documents
 
-    def create_vocab(self, corpus):
-        d2v_model = Doc2Vec(vector_size=self.n_vocab, min_count=self.min_count, epochs=self.epochs)
+    # ✅ NORMALIZED VOCAB CREATION
+    def create_vocab(self, corpus, labels):
 
-        # d2v_model.build_vocab(train_corpus)
-        total_words, corpus_count = d2v_model.scan_vocab(
-            corpus_iterable=corpus, corpus_file=None,
-            progress_per=10000, trim_rule=None
+        class_counts = defaultdict(Counter)
+        class_sizes = Counter(labels)
+
+        # Count subtree frequencies per class
+        for doc, label in zip(corpus, labels):
+            class_counts[label].update(doc.words)
+
+        # Normalize frequencies per class
+        normalized_freq = Counter()
+
+        for label in class_counts:
+            for word, count in class_counts[label].items():
+                normalized_freq[word] += count / class_sizes[label]
+
+        # Sort and trim vocabulary
+        sorted_vocab = sorted(
+            normalized_freq.items(),
+            key=lambda x: x[1],
+            reverse=True
         )
-        d2v_model.corpus_count = corpus_count
-        d2v_model.corpus_total_words = total_words
-        d2v_model.prepare_vocab(update=False, keep_raw_vocab=True, trim_rule=None)
 
-        sorted_vocab = (sorted(d2v_model.raw_vocab.items(), key=lambda item: item[1], reverse=True))
-
-        trimmed_vocab = sorted_vocab[0:self.n_vocab]
-
+        trimmed_vocab = sorted_vocab[:self.n_vocab]
         self.n_vocab = len(trimmed_vocab)
+
         return trimmed_vocab
 
+    # ✅ NORMALIZED FEATURE VECTORS
     def calc_coefficients(self, corpus):
 
         sparse_vector = np.zeros([len(corpus), self.n_vocab])
 
-        i = 0
-        for corpus in corpus:
-            words = corpus.words
+        for i, doc in enumerate(corpus):
+            words_count = Counter(doc.words)
+            total = sum(words_count.values())
 
-            words_count = Counter(corpus.words)
-            j = 0
-            for atom, _ in self.vocab:
-                sparse_vector[i][j] = words_count[atom]
-                j = j + 1
-
-            i = i + 1
+            for j, (atom, _) in enumerate(self.vocab):
+                if total > 0:
+                    sparse_vector[i][j] = words_count[atom] / total
+                else:
+                    sparse_vector[i][j] = 0
 
         return sparse_vector
 
-    def generate_training_embeddings(self, graphs):
+    # ✅ TRAINING (now requires labels)
+    def generate_training_embeddings(self, graphs, labels):
         self._set_seed()
         documents = self.create_wl_hash(graphs)
-        self.vocab = self.create_vocab(documents)
+        self.vocab = self.create_vocab(documents, labels)
         train_graph_embeddings = self.calc_coefficients(documents)
         return train_graph_embeddings
 
+    # ✅ INFERENCE (no labels needed)
     def generate_inferencing_embeddings(self, graphs):
         self._set_seed()
         documents = self.create_wl_hash(graphs)

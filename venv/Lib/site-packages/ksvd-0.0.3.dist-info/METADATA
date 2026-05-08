@@ -1,0 +1,20 @@
+Metadata-Version: 2.0
+Name: ksvd
+Version: 0.0.3
+Summary: An K-SVD implementaion written in Python.
+Home-page: https://github.com/nel215/ksvd
+Author: nel215
+Author-email: otomo.yuhei@gmail.com
+License: UNKNOWN
+Keywords: machine learning
+Platform: UNKNOWN
+Classifier: Development Status :: 3 - Alpha
+Classifier: Environment :: Console
+Classifier: License :: OSI Approved :: Apache Software License
+Classifier: Topic :: Scientific/Engineering :: Mathematics
+Requires-Dist: numpy
+Requires-Dist: scikit-learn
+
+UNKNOWN
+
+

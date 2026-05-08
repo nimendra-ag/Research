@@ -7,13 +7,11 @@ class GraphEncoder(ABC, Estimator):
         super().__init__()
         self.name = name
         self.embeddings = None
-        self.graphs = None
 
     @abstractmethod
-    def generate_graph_embeddings(self):
+    def generate_training_embeddings(self, graphs):
         pass
 
     @abstractmethod
-    def fit(self):
+    def generate_inferencing_embeddings(self, graphs):
         pass
-

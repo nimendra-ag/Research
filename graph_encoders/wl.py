@@ -117,16 +117,17 @@ class WL(GraphEncoder):
 
         sparse_vector = np.zeros([len(corpus), self.n_vocab])
 
-        for i, document in enumerate(corpus):
+        i = 0
+        for corpus in corpus:
+            words = corpus.words
 
-            words_count = Counter(document.words)
-            for j, (feature, _) in enumerate(self.vocab):
+            words_count = Counter(corpus.words)
+            j = 0
+            for atom, _ in self.vocab:
+                sparse_vector[i][j] = words_count[atom]
+                j = j + 1
 
-                sparse_vector[i][j] = words_count[feature]
-
-        norms = np.linalg.norm(sparse_vector, axis=1, keepdims=True)
-        norms[norms == 0] = 1
-        sparse_vector = sparse_vector / norms
+            i = i + 1
 
         return sparse_vector
 

@@ -16,7 +16,7 @@ class GraphDataLoader:
     def __init__(self):
         if not self._initialized:
             self.nci_full_graphs, self.nci_full_labels = self.load_nci_full()
-            self.reddit10k_graphs, self.reddit10k_labels = self.load_reddit10k()
+            # self.reddit10k_graphs, self.reddit10k_labels = self.load_reddit10k()
             self._initialized = True
 
     def load_nci_full(self, id=1):
@@ -42,14 +42,20 @@ class GraphDataLoader:
             for atom in mol.GetAtoms():
                 G.add_node(
                     atom.GetIdx(),
-                    label=atom.GetSymbol()   # WL uses node labels
+                    feature=atom.GetSymbol()   # WL uses node labels
                 )
 
             # Add bonds as edges
             for bond in mol.GetBonds():
                 G.add_edge(
                     bond.GetBeginAtomIdx(),
-                    bond.GetEndAtomIdx()
+                    bond.GetEndAtomIdx(),
+                    bond_type=str(bond.GetBondType()),
+                    bond_order=bond.GetBondTypeAsDouble(),
+                    aromatic=bond.GetIsAromatic(),
+                    in_ring=bond.IsInRing(),
+                    conjugated=bond.GetIsConjugated(),
+                    stereo=str(bond.GetStereo())
                 )
 
             # Get graph label

@@ -7,12 +7,11 @@ from collections import Counter
 
 
 class WL(GraphEncoder):
-
     def __init__(
             self,
             wl_iterations: int = 2,
-            attributed: bool = False,
-            erase_base_features: bool = False,
+            attributed: bool = True,
+            erase_base_features: bool = True,
             n_vocab: int = 1000,
             min_features: int = 50
     ):
@@ -20,10 +19,8 @@ class WL(GraphEncoder):
         super().__init__(name="ImbalanceAwareWL")
 
         self.seed = 42
-
         self.vocab = None
         self.graph_embeddings = None
-
         self.wl_iterations = wl_iterations
         self.attributed = attributed
         self.erase_base_features = erase_base_features
@@ -38,28 +35,20 @@ class WL(GraphEncoder):
     # WL HASH EXTRACTION
     # =========================================================
 
-    def create_wl_hash(self, graphs):
+    def create_wl_hash(self, graph_list):
 
         documents = []
 
-        for graph in graphs:
-
+        for graph in graph_list:
             g = self._check_graph(graph)
 
             document = WeisfeilerLehmanHashing(
-                g,
-                self.wl_iterations,
-                self.attributed,
-                self.erase_base_features
-            )
+                g, self.wl_iterations, self.attributed, self.erase_base_features)
 
             documents.append(document)
 
         documents = [
-            TaggedDocument(
-                words=doc.get_graph_features(),
-                tags=[str(i)]
-            )
+            TaggedDocument(words=doc.get_graph_features(), tags=[str(i)])
             for i, doc in enumerate(documents)
         ]
 
@@ -70,11 +59,6 @@ class WL(GraphEncoder):
     # =========================================================
 
     def create_vocab(self, corpus, labels):
-
-        # ---------------------------------------------
-        # Separate class-wise document frequencies
-        # ---------------------------------------------
-
         majority_df = Counter()
         minority_df = Counter()
 
@@ -87,7 +71,7 @@ class WL(GraphEncoder):
             # document frequency instead of raw counts
             unique_features = Counter(doc.words)
 
-            if label == 0:
+            if label == -1:
 
                 majority_graphs += 1
 
@@ -144,13 +128,14 @@ class WL(GraphEncoder):
                 p_majority + p_minority
             )
 
-            # Final score
-            lambda_weight = 0.3
+            # # Final score
+            # lambda_weight = 0.3
 
-            score = (
-            total_presence
-            + lambda_weight * discriminative_score
-           )
+            # score = (
+           #  total_presence
+           #  + lambda_weight * discriminative_score
+           # )
+            score = total_presence * discriminative_score
 
             scored_vocab.append(
                 (feature, score)
@@ -166,13 +151,24 @@ class WL(GraphEncoder):
             reverse=True
         )
 
-       # ---------------------------------------------
-       # Top-K selection
-       # ---------------------------------------------
+        # ----------------------------------------
+        # Adaptive selection
+        # ----------------------------------------
 
-        top_k = min(self.n_vocab, len(scored_vocab))
+        scores = np.array([x[1] for x in scored_vocab])
 
-        trimmed_vocab = scored_vocab[:top_k]
+        # Threshold = mean + std
+        threshold = scores.mean() - scores.std()
+
+        trimmed_vocab = [
+            item for item in scored_vocab
+            if item[1] >= threshold
+        ]
+
+        # fallback if too few selected
+        print(f"selected {len(trimmed_vocab)} from the adaptive selection method")
+        if len(trimmed_vocab) < 50:
+            trimmed_vocab = scored_vocab[:self.n_vocab]
 
         self.n_vocab = len(trimmed_vocab)
 
@@ -219,42 +215,17 @@ class WL(GraphEncoder):
     # TRAINING EMBEDDINGS
     # =========================================================
 
-    def generate_training_embeddings(
-            self,
-            graphs,
-            labels
-    ):
-
+    def generate_training_embeddings(self, graphs, labels):
         self._set_seed()
-
         documents = self.create_wl_hash(graphs)
-
-        self.vocab = self.create_vocab(
-            documents,
-            labels
-        )
-
-        train_graph_embeddings = self.calc_coefficients(
-            documents
-        )
-
+        self.vocab = self.create_vocab(documents, labels)
+        train_graph_embeddings = self.calc_coefficients(documents)
         return train_graph_embeddings
 
-    # =========================================================
-    # INFERENCE EMBEDDINGS
-    # =========================================================
-
-    def generate_inferencing_embeddings(
-            self,
-            graphs
-    ):
-
+    def generate_inferencing_embeddings(self, graphs):
         self._set_seed()
-
         documents = self.create_wl_hash(graphs)
-
         infer_graph_embeddings = self.calc_coefficients(
             documents
         )
-
         return infer_graph_embeddings

@@ -42,14 +42,20 @@ class GraphDataLoader:
             for atom in mol.GetAtoms():
                 G.add_node(
                     atom.GetIdx(),
-                    label=atom.GetSymbol()   # WL uses node labels
+                    feature=atom.GetSymbol()   # WL uses node labels
                 )
 
             # Add bonds as edges
             for bond in mol.GetBonds():
                 G.add_edge(
                     bond.GetBeginAtomIdx(),
-                    bond.GetEndAtomIdx()
+                    bond.GetEndAtomIdx(),
+                    bond_type=str(bond.GetBondType()),
+                    bond_order=bond.GetBondTypeAsDouble(),
+                    aromatic=bond.GetIsAromatic(),
+                    in_ring=bond.IsInRing(),
+                    conjugated=bond.GetIsConjugated(),
+                    stereo=str(bond.GetStereo())
                 )
 
             # Get graph label

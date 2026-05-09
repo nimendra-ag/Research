@@ -72,6 +72,8 @@ G_vocab_train, G_ML_train, y_vocab_train, y_ML_train = train_test_split(
 # results_gradient_boosting = evaluator.predict_gradient_boosting()
 # print(results_gradient_boosting)
 
+# First divide the data into train and test sets.
+G_train, G_test, y_train, y_test = train_test_split(graphs, y, test_size=0.2, random_state=42)
 
 class WL_AKSVD:
     def __init__(self, data_loader):

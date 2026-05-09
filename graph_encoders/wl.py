@@ -9,8 +9,8 @@ class WL(GraphEncoder):
     def __init__(
             self,
             wl_iterations: int = 2,
-            attributed: bool = False,
-            erase_base_features: bool = False,
+            attributed: bool = True,
+            erase_base_features: bool = True,
             n_vocab: int = 1000,
             min_count: int = 5,
             epochs: int = 10

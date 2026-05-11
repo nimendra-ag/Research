@@ -5,7 +5,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from dict_learners.fddl import FDDL
+from dict_learners.csfddl import CSFDDL
 from graph_encoders.wl import WL
 from utils.graph_data import GraphDataLoader
 from utils.evaluator import Evaluator
@@ -15,7 +15,7 @@ import numpy as np
 
 # Configuration
 # DATASET = "nci-full"
-# MODEL_NAME = "fddl"
+# MODEL_NAME = "csfddl"
 
 # data_loader = GraphDataLoader()
 
@@ -35,14 +35,14 @@ import numpy as np
 # graph_embeddings_ml_train = wl.generate_inferencing_embeddings(G_ML_train)
 # graph_embeddings_ml_test = wl.generate_inferencing_embeddings(G_test)
 
-# # 2. Dictionary Learning (FDDL)
-# fddl = FDDL(k=10, max_iter=20)
-# # Note: FDDL is supervised, so it needs labels
-# fddl.fit(training_graph_embeddings=graph_embeddings_ml_train, y_train=y_ML_train)
+# # 2. Dictionary Learning (CSFDDL)
+# csfddl = CSFDDL(k=10, max_iter=20)
+# # Note: CSFDDL is supervised, so it needs labels
+# csfddl.fit(training_graph_embeddings=graph_embeddings_ml_train, y_train=y_ML_train)
 
 # # 3. Infer Sparse Coefficients
-# X_ML_train = fddl.infer(graph_embeddings_ml_train)
-# X_ML_test = fddl.infer(graph_embeddings_ml_test)
+# X_ML_train = csfddl.infer(graph_embeddings_ml_train)
+# X_ML_test = csfddl.infer(graph_embeddings_ml_test)
 
 # # Scale
 # scaler = MaxAbsScaler()
@@ -67,9 +67,9 @@ import numpy as np
 
 
 
-class WL_FDDL:
+class WL_CSFDDL:
     def __init__(self, data_loader):
-        self.implementation = "WL_FDDL"
+        self.implementation = "WL_CSFDDL"
         self.data_loader = data_loader
 
     def run(self):
@@ -86,21 +86,21 @@ class WL_FDDL:
         wl = WL()
         graph_embeddings = wl.generate_training_embeddings(G_vocab_train)
 
-        fddl = FDDL(k=10, max_iter=20)
-        fddl.fit(training_graph_embeddings=graph_embeddings, y_train=y_vocab_train)
+        csfddl = CSFDDL(k=10, max_iter=50, lambda1=0.01, lambda2=0.1, cost_sensitive=True)
+        csfddl.fit(training_graph_embeddings=graph_embeddings, y_train=y_vocab_train)
 
         graph_embeddings_ml_train = wl.generate_inferencing_embeddings(G_ML_train)
-        X_ML_train = fddl.infer(graph_embeddings_ml_train)
+        X_ML_train = csfddl.infer(graph_embeddings_ml_train)
 
         graph_embeddings_ml_test = wl.generate_inferencing_embeddings(G_test)
-        X_ML_test = fddl.infer(graph_embeddings_ml_test)
+        X_ML_test = csfddl.infer(graph_embeddings_ml_test)
 
         scaler = MaxAbsScaler()
         X_ML_train_scaled = scaler.fit_transform(X_ML_train)
         X_ML_test_scaled = scaler.transform(X_ML_test)
 
         # Model evaluation
-        evaluator = Evaluator(X_ML_train_scaled, y_ML_train, X_ML_test_scaled, y_test, dl_model="fddl", dataset="nci-full")
+        evaluator = Evaluator(X_ML_train_scaled, y_ML_train, X_ML_test_scaled, y_test, dl_model="csfddl", dataset="nci-full")
         results_logistic_reg = evaluator.predict_logistic_regression()
         print(results_logistic_reg)
 
@@ -108,5 +108,5 @@ class WL_FDDL:
         print(results_gradient_boosting)
         
 data_loader = GraphDataLoader()
-wl_fddl = WL_FDDL(data_loader)
-wl_fddl.run()
+wl_csfddl = WL_CSFDDL(data_loader)
+wl_csfddl.run()

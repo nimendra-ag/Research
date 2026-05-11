@@ -1,6 +1,7 @@
 from collections import Counter
 import numpy as np
 import networkx as nx
+import pandas as pd  # Make sure to add this at the top of fsm.py!
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -77,12 +78,52 @@ class FSM(GraphEncoder):
 
     # --- NEW MAIN BRANCH INTERFACE METHODS ---
 
+
+
+    # ... [Keep your __init__, extract_subgraphs, create_vocab, and calc_coefficients exactly the same] ...
+
     def generate_training_embeddings(self, graphs):
-        """Extracts subgraphs, builds the locked vocabulary, and returns the Y matrix."""
+        """Extracts subgraphs, builds the locked vocabulary, filters redundancy, and returns the Y matrix."""
+        # 1. Extract and build raw vocabulary
         documents = self.extract_subgraphs(graphs)
         self.vocab = self.create_vocab(documents)
-        self.embeddings = self.calc_coefficients(documents)
+        raw_embeddings = self.calc_coefficients(documents)
+
+        # 2. --- NEW: REDUNDANCY / COLLINEARITY FILTER ---
+        print(f"\nFiltering Collinear Subgraphs...")
+        df = pd.DataFrame(raw_embeddings)
+
+        # Calculate the absolute correlation matrix between all subgraphs
+        corr_matrix = df.corr().abs()
+
+        # Select the upper triangle of the correlation matrix
+        upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+
+        # Find features (columns) with a correlation greater than 0.95
+        to_drop_indices = [column for column in upper.columns if any(upper[column] > 0.95)]
+
+        # Drop the redundant features from the embeddings
+        self.embeddings = df.drop(columns=to_drop_indices).values
+
+        # Keep only the non-redundant subgraphs in our locked vocabulary
+        self.vocab = [v for i, v in enumerate(self.vocab) if i not in to_drop_indices]
+        self.n_vocab = len(self.vocab)
+
+        print(f"Dropped {len(to_drop_indices)} redundant topologies. Final Vocab Size: {self.n_vocab}")
+        # ------------------------------------------------
+
         return self.embeddings
+
+    def generate_inferencing_embeddings(self, graphs):
+        """Extracts subgraphs from new data and maps them to the EXISTING filtered vocabulary."""
+        if self.vocab is None:
+            raise ValueError("Vocabulary not built. Call generate_training_embeddings first.")
+
+        documents = self.extract_subgraphs(graphs)
+
+        # Because self.vocab was updated to only contain the filtered shapes,
+        # calc_coefficients will automatically only build columns for the valid features!
+        return self.calc_coefficients(documents)
 
     def generate_inferencing_embeddings(self, graphs):
         """Extracts subgraphs from new data and maps them to the EXISTING vocabulary."""

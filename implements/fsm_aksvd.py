@@ -4,7 +4,7 @@ from utils.graph_data import GraphDataLoader
 from utils.evaluator import Evaluator
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MaxAbsScaler
-
+from graph_encoders.fsm_hybrid import FSM_Hybrid
 
 class FSM_AKSVD:
     def __init__(self, data_loader):
@@ -23,7 +23,8 @@ class FSM_AKSVD:
                                                                                 random_state=42)
 
         # 4. FSM Vocabulary Training
-        fsm = FSM(radius=1, n_vocab=1000)
+        #fsm = FSM(radius=1, n_vocab=1000)
+        fsm = FSM_Hybrid(radius=1,n_vocab=1000)
         graph_embeddings = fsm.generate_training_embeddings(G_vocab_train)
 
         print("\nTop 5 Frequent Subgraphs Identified (From Vocab Training Set):")

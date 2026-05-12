@@ -1,0 +1,10 @@
+Dataset: nci_full (ID: 1)
+Total Graphs: 37349
+Class Distribution:
+  Class 1: 1793 graphs (4.80%)
+  Class -1: 35556 graphs (95.20%)
+
+Graph Statistics:
+  Average Nodes per Graph: 26.22 (std: 11.49)
+  Average Edges per Graph: 28.44 (std: 12.69)
+  Average Degree Overall: 2.17

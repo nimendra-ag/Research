@@ -73,7 +73,6 @@ G_vocab_train, G_ML_train, y_vocab_train, y_ML_train = train_test_split(
 # print(results_gradient_boosting)
 
 # First divide the data into train and test sets.
-G_train, G_test, y_train, y_test = train_test_split(graphs, y, test_size=0.2, random_state=42)
 
 class WL_AKSVD:
     def __init__(self):
@@ -97,7 +96,7 @@ class WL_AKSVD:
         X_ML_test_scaled = scaler.transform(X_ML_test)
 
         # Model evaluation
-        evaluator = Evaluator(X_ML_train_scaled, y_ML_train, X_ML_test_scaled, y_test)
+        evaluator = Evaluator(X_ML_train_scaled, y_ML_train, X_ML_test_scaled, y_test, dl_model="wl_aksvd", dataset="nci-full")
         results_logistic_reg = evaluator.predict_logistic_regression()
         print(results_logistic_reg)
 
@@ -105,5 +104,5 @@ class WL_AKSVD:
         print(results_gradient_boosting)
 
 
-wl_ksvd = WL_AKSVD(data_loader)
+wl_ksvd = WL_AKSVD()
 wl_ksvd.run(G_vocab_train, y_vocab_train, G_ML_train, G_test, y_ML_train, y_test)

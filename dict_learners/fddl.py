@@ -5,11 +5,11 @@ from dict_learners.dict_learner import DictLearner
 class FDDL(DictLearner):
     def __init__(
             self,
-            k: int = 10,
-            lambda1: float = 0.05,
-            lambda2: float = 0.01,
+            k: int = 32,
+            lambda1: float = 0.1,
+            lambda2: float = 0.1,
             eta: float = 1.0,
-            max_iter: int = 20,
+            max_iter: int = 64,
             lr: float = 0.01,
             ipm_iters: int = 15
     ):

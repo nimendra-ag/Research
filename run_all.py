@@ -2,6 +2,8 @@ from implements.wl_aksvd import WL_AKSVD
 from implements.wl_bayesian import WL_BAYESIAN
 from utils.graph_data import GraphDataLoader
 from sklearn.model_selection import train_test_split
+
+
 data_loader = GraphDataLoader()
 
 def main():
@@ -21,11 +23,11 @@ def main():
         random_state=42
     )
 
-    wl_aksvd = WL_AKSVD(data_loader)
+    wl_aksvd = WL_AKSVD()
     print(f"Running {wl_aksvd.implementation}...")
     wl_aksvd.run(G_vocab_train, G_ML_train, G_test, y_ML_train, y_test)
 
-    wl_bayesian = WL_BAYESIAN(data_loader)
+    wl_bayesian = WL_BAYESIAN()
     print(f"Running {wl_bayesian.implementation}...")
     wl_bayesian.run(G_vocab_train, G_ML_train, G_test, y_ML_train, y_test)
 

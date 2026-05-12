@@ -1,3 +1,14 @@
+import random
+import numpy as np
+import os
+
+# 1. Lock standard Python and NumPy randomness
+random.seed(42)
+np.random.seed(42)
+
+# 2. (Optional but recommended) Lock environment variables for some backend C libraries
+os.environ['PYTHONHASHSEED'] = str(42)
+
 from dict_learners.aksvd import AKSVD
 from graph_encoders.fsm import FSM
 from utils.graph_data import GraphDataLoader

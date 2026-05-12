@@ -124,11 +124,3 @@ class FSM(GraphEncoder):
         # Because self.vocab was updated to only contain the filtered shapes,
         # calc_coefficients will automatically only build columns for the valid features!
         return self.calc_coefficients(documents)
-
-    def generate_inferencing_embeddings(self, graphs):
-        """Extracts subgraphs from new data and maps them to the EXISTING vocabulary."""
-        if self.vocab is None:
-            raise ValueError("Vocabulary not built. Call generate_training_embeddings first.")
-
-        documents = self.extract_subgraphs(graphs)
-        return self.calc_coefficients(documents)

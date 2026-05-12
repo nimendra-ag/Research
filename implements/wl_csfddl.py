@@ -86,7 +86,7 @@ class WL_CSFDDL:
         wl = WL()
         graph_embeddings = wl.generate_training_embeddings(G_vocab_train)
 
-        csfddl = CSFDDL(k=10, max_iter=50, lambda1=0.01, lambda2=0.1, cost_sensitive=True)
+        csfddl = CSFDDL(k=32, max_iter=64, lambda1=0.1, lambda2=0.1, cost_sensitive=True)
         csfddl.fit(training_graph_embeddings=graph_embeddings, y_train=y_vocab_train)
 
         graph_embeddings_ml_train = wl.generate_inferencing_embeddings(G_ML_train)
@@ -107,6 +107,6 @@ class WL_CSFDDL:
         results_gradient_boosting = evaluator.predict_gradient_boosting()
         print(results_gradient_boosting)
         
-data_loader = GraphDataLoader()
-wl_csfddl = WL_CSFDDL(data_loader)
-wl_csfddl.run()
+# data_loader = GraphDataLoader()
+# wl_csfddl = WL_CSFDDL(data_loader)
+# wl_csfddl.run()

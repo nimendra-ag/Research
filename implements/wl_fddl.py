@@ -86,7 +86,7 @@ class WL_FDDL:
         wl = WL()
         graph_embeddings = wl.generate_training_embeddings(G_vocab_train)
 
-        fddl = FDDL(k=10, max_iter=20)
+        fddl = FDDL(k=32, max_iter=64)
         fddl.fit(training_graph_embeddings=graph_embeddings, y_train=y_vocab_train)
 
         graph_embeddings_ml_train = wl.generate_inferencing_embeddings(G_ML_train)
@@ -107,6 +107,6 @@ class WL_FDDL:
         results_gradient_boosting = evaluator.predict_gradient_boosting()
         print(results_gradient_boosting)
         
-data_loader = GraphDataLoader()
-wl_fddl = WL_FDDL(data_loader)
-wl_fddl.run()
+# data_loader = GraphDataLoader()
+# wl_fddl = WL_FDDL(data_loader)
+# wl_fddl.run()

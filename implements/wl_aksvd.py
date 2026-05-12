@@ -12,8 +12,6 @@ from utils.evaluator import Evaluator
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MaxAbsScaler
 
-# data_loader = GraphDataLoader()
-
 #-------------------------Without overfit protection-------------------------#
 # # load graph data
 # graphs, y = load_data(name="nci", size=2)
@@ -104,6 +102,6 @@ class WL_AKSVD:
         results_gradient_boosting = evaluator.predict_gradient_boosting()
         print(results_gradient_boosting)
 
-
+# data_loader = GraphDataLoader()
 # wl_ksvd = WL_AKSVD(data_loader)
 # wl_ksvd.run()

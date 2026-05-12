@@ -8,6 +8,7 @@ from collections import Counter
 class WL(GraphEncoder):
     def __init__(
             self,
+            graphs,
             wl_iterations: int = 2,
             attributed: bool = True,
             erase_base_features: bool = True,
@@ -18,6 +19,7 @@ class WL(GraphEncoder):
         super().__init__(name="WL")
         self.seed = 42
         self.vocab = None
+        self.graphs = graphs
         self.graph_embeddings = None
         self.wl_iterations = wl_iterations
         self.attributed = attributed
@@ -26,9 +28,9 @@ class WL(GraphEncoder):
         self.min_count = min_count
         self.epochs = epochs
 
-    def create_wl_hash(self, graphs):
+    def create_wl_hash(self):
         documents = []
-        for graph in graphs:
+        for graph in self.graphs:
             g = self._check_graph(graph)
             document = WeisfeilerLehmanHashing(g, self.wl_iterations, self.attributed, self.erase_base_features)
             documents.append(document)
@@ -77,15 +79,12 @@ class WL(GraphEncoder):
 
         return sparse_vector
 
-    def generate_training_embeddings(self, graphs):
+    def generate_graph_embeddings(self):
         self._set_seed()
-        documents = self.create_wl_hash(graphs)
+        documents = self.create_wl_hash()
         self.vocab = self.create_vocab(documents)
-        train_graph_embeddings = self.calc_coefficients(documents)
-        return train_graph_embeddings
+        self.graph_embeddings = self.calc_coefficients(documents)
 
-    def generate_inferencing_embeddings(self, graphs):
-        self._set_seed()
-        documents = self.create_wl_hash(graphs)
-        infer_graph_embeddings = self.calc_coefficients(documents)
-        return infer_graph_embeddings
+    def fit(self):
+        self.generate_graph_embeddings()
+        return self.graph_embeddings

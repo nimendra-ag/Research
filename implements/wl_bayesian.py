@@ -58,9 +58,8 @@ from sklearn.preprocessing import MaxAbsScaler
 
 
 class WL_BAYESIAN:
-    def __init__(self, data_loader):
+    def __init__(self):
         self.implementation = "WL_BAYESIAN"
-        self.data_loader = data_loader
 
     def run(self, G_vocab_train, G_ML_train, G_test, y_ML_train, y_test):
         wl = WL()

@@ -23,8 +23,8 @@ class FSM_AKSVD:
                                                                                 random_state=42)
 
         # 4. FSM Vocabulary Training
-        #fsm = FSM(radius=1, n_vocab=1000)
-        fsm = FSM_Hybrid(radius=1,n_vocab=1000)
+        fsm = FSM(radius=1, n_vocab=1000)
+        #fsm = FSM_Hybrid(radius=1,n_vocab=1000)
         graph_embeddings = fsm.generate_training_embeddings(G_vocab_train)
 
         print("\nTop 5 Frequent Subgraphs Identified (From Vocab Training Set):")

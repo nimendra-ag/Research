@@ -1,3 +1,14 @@
+import random
+import numpy as np
+import os
+
+# 1. Lock standard Python and NumPy randomness
+random.seed(42)
+np.random.seed(42)
+
+# 2. (Optional but recommended) Lock environment variables for some backend C libraries
+os.environ['PYTHONHASHSEED'] = str(42)
+
 from dict_learners.aksvd import AKSVD
 from graph_encoders.fsm import FSM
 from utils.graph_data import GraphDataLoader
@@ -23,8 +34,8 @@ class FSM_AKSVD:
                                                                                 random_state=42)
 
         # 4. FSM Vocabulary Training
-        #fsm = FSM(radius=1, n_vocab=1000)
-        fsm = FSM_Hybrid(radius=1,n_vocab=1000)
+        fsm = FSM(radius=1, n_vocab=1000)
+        #fsm = FSM_Hybrid(radius=1,n_vocab=1000)
         graph_embeddings = fsm.generate_training_embeddings(G_vocab_train)
 
         print("\nTop 5 Frequent Subgraphs Identified (From Vocab Training Set):")

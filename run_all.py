@@ -25,7 +25,7 @@ def main():
 
     wl_aksvd = WL_AKSVD()
     print(f"Running {wl_aksvd.implementation}...")
-    wl_aksvd.run(G_vocab_train, G_ML_train, G_test, y_ML_train, y_test)
+    wl_aksvd.run(G_vocab_train, y_vocab_train, G_ML_train, G_test, y_ML_train, y_test)
 
     wl_bayesian = WL_BAYESIAN()
     print(f"Running {wl_bayesian.implementation}...")

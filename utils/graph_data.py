@@ -1,4 +1,4 @@
-from pathlib import Path
+import os
 import networkx as nx
 from rdkit import Chem
 from karateclub.dataset import GraphSetReader
@@ -24,17 +24,14 @@ class GraphDataLoader:
         id - (1, 33, 41, 47, 81, 83, 109, 123, 145)
         """
         print('Loading NCI dataset')
-        dataset_dir = Path(__file__).resolve().parents[1] / "datasets" / "NCI_full"
+        DATASET_DIR = "datasets/NCI_full"  # change this
         graphs = []
         y = []
 
         filename = f"{id}total-connect.sdf"
-        filepath = dataset_dir / filename
+        filepath = os.path.join(DATASET_DIR, filename)
 
-        if not filepath.exists():
-            raise FileNotFoundError(f"NCI SDF not found: {filepath}")
-
-        supplier = Chem.SDMolSupplier(str(filepath), sanitize=False, removeHs=False)
+        supplier = Chem.SDMolSupplier(filepath, removeHs=False)
         for mol in supplier:
             if mol is None:
                 continue

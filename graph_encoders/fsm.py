@@ -45,63 +45,72 @@ class FSM(GraphEncoder):
             documents.append(doc_words)
         return documents
 
-    def create_vocab(self, documents, labels, min_support_ratio=0.05, n_vocab=1000):
+    def create_vocab(self, documents, labels, n_vocab=1000, disc_ratio=0.3):
         """
-        Builds vocabulary based on Discriminative Scoring (Variance of Class Supports).
-        Keeps shapes that show the biggest difference in frequency between classes.
+        HYBRID STRATEGY:
+        Allocates (1 - disc_ratio) of the vocabulary to the most frequent shapes per class (for K-SVD reconstruction stability).
+        Allocates (disc_ratio) of the vocabulary to the highest variance shapes (for classification power).
         """
         unique_classes = np.unique(labels)
 
-        # 1. Group documents by class and calculate class sizes
+        # --- PART 1: FREQUENCY COUNTING ---
+        class_shape_counts = {cls: Counter() for cls in unique_classes}
         class_docs = {cls: [] for cls in unique_classes}
+        global_shapes = set()
+
         for doc, label in zip(documents, labels):
-            # We use set(doc) so we only count Document Frequency (does the graph have it or not?)
             class_docs[label].append(set(doc))
+            class_shape_counts[label].update(set(doc))
+            global_shapes.update(set(doc))
 
         class_sizes = {cls: len(docs) for cls, docs in class_docs.items()}
 
-        # 2. Count Document Frequency per class
-        class_shape_counts = {cls: Counter() for cls in unique_classes}
-        global_shapes = set()
+        hybrid_vocab_dict = {}
 
-        for cls, docs in class_docs.items():
-            for doc in docs:
-                class_shape_counts[cls].update(doc)
-                global_shapes.update(doc)
+        # --- PART 2: GATHER FREQUENT "BUILDING BLOCKS" (e.g., 70% of vocab) ---
+        freq_vocab_size = int(n_vocab * (1 - disc_ratio))
+        vocab_per_class = freq_vocab_size // len(unique_classes)
 
-        # 3. Calculate Discriminative Score for every single shape
+        for cls in unique_classes:
+            # Sort by frequency within this specific class
+            sorted_cls_freq = sorted(class_shape_counts[cls].items(), key=lambda x: x[1], reverse=True)
+            top_cls_features = sorted_cls_freq[:vocab_per_class]
+
+            for shape, count in top_cls_features:
+                hybrid_vocab_dict[shape] = count  # Store highest frequency
+
+        # --- PART 3: GATHER DISCRIMINATIVE "SPECIALTY PIECES" (e.g., 30% of vocab) ---
+        disc_vocab_size = n_vocab - len(hybrid_vocab_dict)
         shape_scores = {}
 
         for shape in global_shapes:
-            # Calculate the support rate (0.0 to 1.0) for this shape in each class
-            support_rates = []
-            max_support = 0.0  # Track the highest support in any single class
-
-            for cls in unique_classes:
-                # Support = (Number of graphs in this class with the shape) / (Total graphs in class)
-                support = class_shape_counts[cls].get(shape, 0) / class_sizes[cls]
-                support_rates.append(support)
-                max_support = max(max_support, support)
-
-            # Filter baseline noise: The shape MUST appear in at least X% of AT LEAST ONE class
-            # This prevents us from keeping a shape that appears in 1 Active and 0 Inactives.
-            if max_support < min_support_ratio:
+            # Skip shapes we already secured in the frequent batch
+            if shape in hybrid_vocab_dict:
                 continue
 
-            # The Discriminative Score is the statistical variance of its support rates.
-            # High variance = Highly discriminative. Low variance = Equally common everywhere.
-            score = np.var(support_rates)
-            shape_scores[shape] = score
+            support_rates = []
+            for cls in unique_classes:
+                support = class_shape_counts[cls].get(shape, 0) / class_sizes[cls]
+                support_rates.append(support)
 
-        # 4. Sort shapes by their discriminative score (highest first)
-        sorted_discriminative_shapes = sorted(shape_scores.items(), key=lambda x: x[1], reverse=True)
+            # Score is variance of support rates across classes
+            shape_scores[shape] = np.var(support_rates)
 
-        # 5. Take the top most discriminative features (up to n_vocab)
-        final_vocab = sorted_discriminative_shapes[:n_vocab]
+        # Sort remaining shapes by discriminative score
+        sorted_disc_shapes = sorted(shape_scores.items(), key=lambda x: x[1], reverse=True)
+        top_disc_features = sorted_disc_shapes[:disc_vocab_size]
+
+        # Add the discriminative shapes to our final dictionary
+        for shape, score in top_disc_features:
+            # We assign a dummy count or look up its global frequency just to store it
+            hybrid_vocab_dict[shape] = sum([class_shape_counts[c].get(shape, 0) for c in unique_classes])
+
+        # --- PART 4: FINALIZE ---
+        # Sort everything by global occurrence just for a clean, consistent output structure
+        final_vocab = sorted(hybrid_vocab_dict.items(), key=lambda item: item[1], reverse=True)
 
         self.n_vocab = len(final_vocab)
-        print(f"Evaluated {len(global_shapes)} unique shapes.")
-        print(f"Kept Top {self.n_vocab} highly discriminative shapes.")
+        print(f"Hybrid Vocab Built: {freq_vocab_size} Frequent Base Shapes + {disc_vocab_size} Discriminative Shapes.")
 
         return final_vocab
 

@@ -98,5 +98,11 @@ class WL_BAYESIAN:
         results_gradient_boosting = evaluator.predict_gradient_boosting()
         print(results_gradient_boosting)
 
+        results_svm = evaluator.predict_svm()
+        print(results_svm)
+
+        results_gradient_boosting = evaluator.predict_random_forest()
+        print(results_gradient_boosting)
+
 wl_bayesian = WL_BAYESIAN()
 wl_bayesian.run(G_vocab_train, y_vocab_train, G_ML_train, G_test, y_ML_train, y_test)

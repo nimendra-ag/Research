@@ -10,19 +10,15 @@ from sklearn.metrics import (
     classification_report
 )
 from sklearn.ensemble import GradientBoostingClassifier
-
 import matplotlib.pyplot as plt
 import seaborn as sns
-import os
 from datetime import datetime
-from pathlib import Path
 
-from sklearn.utils import compute_sample_weight
 
 class Evaluator:
 
     def __init__(
-        self, X_train, y_train, X_test, y_test, dl_model, dataset, random_state=42, timestamp=None):
+        self, X_train, y_train, X_test, y_test, dl_model, dataset, random_state=42):
         self.X_train = X_train
         self.X_test = X_test
         self.y_train = y_train
@@ -30,7 +26,7 @@ class Evaluator:
         self.random_state = random_state
         self.dl_model = dl_model
         self.dataset = dataset
-        self.timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") if timestamp is None else timestamp
+        self.timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     def _evaluate_model(self, model, model_name):
 
@@ -43,10 +39,7 @@ class Evaluator:
         # Predicted labels
         y_pred = model.predict(self.X_test)
 
-        # =========================
         # Metrics
-        # =========================
-
         precision = precision_score(self.y_test, y_pred)
         recall = recall_score(self.y_test, y_pred)
         f1 = f1_score(self.y_test, y_pred)
@@ -59,10 +52,7 @@ class Evaluator:
         # Confusion Matrix
         cm = confusion_matrix(self.y_test, y_pred)
 
-        # =========================
         # Print Metrics
-        # =========================
-
         print(f"\n===== {model_name} =====")
         print(f"Precision : {precision:.4f}")
         print(f"Recall    : {recall:.4f}")
@@ -118,7 +108,7 @@ class Evaluator:
 
         print("Predicting with Logistic Regression")
 
-        model = LogisticRegression(random_state=self.random_state)
+        model = LogisticRegression(random_state=0)
 
         return self._evaluate_model(model, "Logistic Regression")
 
@@ -126,6 +116,6 @@ class Evaluator:
 
         print("Predicting with Gradient Boosting")
 
-        model = GradientBoostingClassifier(random_state=self.random_state)
+        model = GradientBoostingClassifier(random_state=0)
 
         return self._evaluate_model(model, "Gradient Boosting")

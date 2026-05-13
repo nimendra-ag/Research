@@ -1,10 +1,4 @@
-import os
-import sys
 from utils.graph_data import GraphDataLoader
-
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
 
 from dict_learners.fddl import FDDL
 from graph_encoders.wl import WL
@@ -112,6 +106,12 @@ class WL_FDDL:
 
         results_gradient_boosting = evaluator.predict_gradient_boosting()
         print(results_gradient_boosting)
+
+        results_svm = evaluator.predict_svm()
+        print(results_svm)
+
+        results_random_forest = evaluator.predict_random_forest()
+        print(results_random_forest)
         
 data_loader = GraphDataLoader()
 wl_fddl = WL_FDDL()

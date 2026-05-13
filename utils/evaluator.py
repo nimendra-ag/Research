@@ -131,7 +131,7 @@ class Evaluator:
             bbox_inches='tight'
         )
 
-        plt.show()
+        # plt.show() 
         return {
             "Precision": precision,
             "Recall": recall,

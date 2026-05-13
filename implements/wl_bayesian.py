@@ -5,7 +5,20 @@ from utils.evaluator import Evaluator
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MaxAbsScaler
 
-# data_loader = GraphDataLoader()
+data_loader = GraphDataLoader()
+graphs, y = data_loader.nci_full_graphs, data_loader.nci_full_labels
+
+G_train, G_test, y_train, y_test = train_test_split(
+    graphs, y,
+    test_size=0.2,
+    random_state=42
+)
+
+G_vocab_train, G_ML_train, y_vocab_train, y_ML_train = train_test_split(
+    G_train, y_train,
+    test_size=0.75,
+    random_state=42
+)
 
 #-------------------------Without overfit protection-------------------------#
 # # load graph data
@@ -61,9 +74,9 @@ class WL_BAYESIAN:
     def __init__(self):
         self.implementation = "WL_BAYESIAN"
 
-    def run(self, G_vocab_train, G_ML_train, G_test, y_ML_train, y_test):
+    def run(self, G_vocab_train, y_vocab_train, G_ML_train, G_test, y_ML_train, y_test):
         wl = WL()
-        graph_embeddings = wl.generate_training_embeddings(G_vocab_train)
+        graph_embeddings = wl.generate_training_embeddings(G_vocab_train, y_vocab_train)
 
         bayesian_dl = BAYESIAN_DL().fit(training_graph_embeddings=graph_embeddings)
 
@@ -84,3 +97,6 @@ class WL_BAYESIAN:
 
         results_gradient_boosting = evaluator.predict_gradient_boosting()
         print(results_gradient_boosting)
+
+wl_bayesian = WL_BAYESIAN()
+wl_bayesian.run(G_vocab_train, y_vocab_train, G_ML_train, G_test, y_ML_train, y_test)

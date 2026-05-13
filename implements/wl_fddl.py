@@ -100,13 +100,19 @@ class WL_FDDL:
         X_ML_test_scaled = scaler.transform(X_ML_test)
 
         # Model evaluation
-        evaluator = Evaluator(X_ML_train_scaled, y_ML_train, X_ML_test_scaled, y_test, dl_model="fddl", dataset="nci-full")
+        evaluator = Evaluator(X_ML_train_scaled, y_ML_train, X_ML_test_scaled, y_test)
         results_logistic_reg = evaluator.predict_logistic_regression()
         print(results_logistic_reg)
 
         results_gradient_boosting = evaluator.predict_gradient_boosting()
         print(results_gradient_boosting)
         
-# data_loader = GraphDataLoader()
-# wl_fddl = WL_FDDL(data_loader)
-# wl_fddl.run()
+        results_svm = evaluator.predict_svm()
+        print(results_svm)
+
+        results_random_forest = evaluator.predict_random_forest()
+        print(results_random_forest)
+        
+data_loader = GraphDataLoader()
+wl_fddl = WL_FDDL(data_loader)
+wl_fddl.run()

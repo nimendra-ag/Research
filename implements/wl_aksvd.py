@@ -5,20 +5,7 @@ from utils.evaluator import Evaluator
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MaxAbsScaler
 
-data_loader = GraphDataLoader()
-graphs, y = data_loader.nci_full_graphs, data_loader.nci_full_labels
-
-G_train, G_test, y_train, y_test = train_test_split(
-    graphs, y,
-    test_size=0.2,
-    random_state=42
-)
-
-G_vocab_train, G_ML_train, y_vocab_train, y_ML_train = train_test_split(
-    G_train, y_train,
-    test_size=0.75,
-    random_state=42
-)
+# data_loader = GraphDataLoader()
 
 #-------------------------Without overfit protection-------------------------#
 # # load graph data
@@ -72,12 +59,23 @@ G_vocab_train, G_ML_train, y_vocab_train, y_ML_train = train_test_split(
 
 
 class WL_AKSVD:
-    def __init__(self):
+    def __init__(self, data_loader):
         self.implementation = "WL_AKSVD"
+        self.data_loader = data_loader
 
-    def run(self, G_vocab_train, y_vocab_train, G_ML_train, G_test, y_ML_train, y_test):
+    def run(self):
+        # load graph data
+        graphs, y = self.data_loader.nci_full_graphs, self.data_loader.nci_full_labels
+
+        # First divide the data into train and test sets.
+        G_train, G_test, y_train, y_test = train_test_split(graphs, y, test_size=0.2, random_state=42)
+
+        # divide the train set further into vocab training and ML training sets
+        G_vocab_train, G_ML_train, y_vocab_train, y_ML_train = train_test_split(G_train, y_train, test_size=0.75,
+                                                                                random_state=42)
+
         wl = WL()
-        graph_embeddings = wl.generate_training_embeddings(G_vocab_train, y_vocab_train)
+        graph_embeddings = wl.generate_training_embeddings(G_vocab_train)
 
         aksvd = AKSVD().fit(training_graph_embeddings=graph_embeddings)
 
@@ -100,5 +98,5 @@ class WL_AKSVD:
         print(results_gradient_boosting)
 
 
-wl_ksvd = WL_AKSVD()
-wl_ksvd.run(G_vocab_train, y_vocab_train, G_ML_train, G_test, y_ML_train, y_test)
+# wl_ksvd = WL_AKSVD(data_loader)
+# wl_ksvd.run()

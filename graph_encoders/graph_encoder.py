@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from karateclub.estimator import Estimator
 
-
+# abstract base class
 class GraphEncoder(ABC, Estimator):
     def __init__(self, name: str):
         super().__init__()

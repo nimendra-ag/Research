@@ -1,4 +1,4 @@
-from pathlib import Path
+import os
 import networkx as nx
 from rdkit import Chem
 from karateclub.dataset import GraphSetReader
@@ -24,17 +24,14 @@ class GraphDataLoader:
         id - (1, 33, 41, 47, 81, 83, 109, 123, 145)
         """
         print('Loading NCI dataset')
-        dataset_dir = Path(__file__).resolve().parents[1] / "datasets" / "NCI_full"
+        DATASET_DIR = "datasets/NCI_full"  # change this
         graphs = []
         y = []
 
         filename = f"{id}total-connect.sdf"
-        filepath = dataset_dir / filename
+        filepath = os.path.join(DATASET_DIR, filename)
 
-        if not filepath.exists():
-            raise FileNotFoundError(f"NCI SDF not found: {filepath}")
-
-        supplier = Chem.SDMolSupplier(str(filepath), sanitize=False, removeHs=False)
+        supplier = Chem.SDMolSupplier(filepath, sanitize=False, removeHs=False)
         for mol in supplier:
             if mol is None:
                 continue
@@ -45,14 +42,20 @@ class GraphDataLoader:
             for atom in mol.GetAtoms():
                 G.add_node(
                     atom.GetIdx(),
-                    label=atom.GetSymbol()   # WL uses node labels
+                    feature=atom.GetSymbol()   # WL uses node labels
                 )
 
             # Add bonds as edges
             for bond in mol.GetBonds():
                 G.add_edge(
                     bond.GetBeginAtomIdx(),
-                    bond.GetEndAtomIdx()
+                    bond.GetEndAtomIdx(),
+                    bond_type=str(bond.GetBondType()),
+                    bond_order=bond.GetBondTypeAsDouble(),
+                    aromatic=bond.GetIsAromatic(),
+                    in_ring=bond.IsInRing(),
+                    conjugated=bond.GetIsConjugated(),
+                    stereo=str(bond.GetStereo())
                 )
 
             # Get graph label

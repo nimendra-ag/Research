@@ -52,7 +52,7 @@ class BAYESIAN_DL(DictLearner):
 
         # 3. Gibbs Sampling Loop
         for it in range(self.max_iter):
-            # --- Update Sparse Codes (Z and S) ---
+            # Update Sparse Codes (Z and S)
             # For efficiency in Python, we do a simplified coordinate update
             # rather than strict element-wise Gibbs which is slow in pure Python.
 
@@ -62,16 +62,14 @@ class BAYESIAN_DL(DictLearner):
             Residual = X.T - Reconstruction  # M x N
 
             # Update Weights S (Gaussian posterior)
-            # S_kn ~ N( ... )
             # Here we approximate by solving least squares on active set or simple gradient step
             # For exact BPFA, we sample. Here we implement a Maximum A Posteriori (MAP) update
-            # for speed, closer to the 'UpdateOption' logic in your MATLAB file.
+            # for speed, closer to the 'UpdateOption' logic in the MATLAB file.
 
             proj = self.components_.T @ Residual  # K x N
             S += 0.01 * proj  # Gradient ascent step for weights
 
-            # --- Update Dictionary D ---
-            # D_k ~ N( ... )
+            # Update Dictionary D
             # We look at the residual + D_k contribution
             for k in range(K):
                 if np.sum(Z[k, :]) > 0:  # Only update if atom is used
@@ -86,8 +84,7 @@ class BAYESIAN_DL(DictLearner):
                     if norm_val > 1e-10:
                         self.components_[:, k] = new_dk / norm_val
 
-            # --- Update Sparsity Probabilities (Pi) ---
-            # Pi_k ~ Beta(a + sum(Z), b + N - sum(Z))
+            # Update Sparsity Probabilities (Pi)
             sum_z = np.sum(Z, axis=1)
             pi_vec = np.random.beta(a0 + sum_z, b0 + N - sum_z)
 
@@ -96,7 +93,7 @@ class BAYESIAN_DL(DictLearner):
             probs = 1 / (1 + ((1 - pi_vec[:, None]) / (pi_vec[:, None] + 1e-10)) * np.exp(-0.5 * (S ** 2)))
             Z = np.random.binomial(1, probs).astype(float)
 
-            # --- Auto-Pruning (The "Non-Parametric" part) ---
+            # Auto-Pruning (The "Non-Parametric" part)
             if self.auto_prune and it > 5:
                 active_atoms = np.sum(Z, axis=1) > 0
                 if np.sum(active_atoms) < K:

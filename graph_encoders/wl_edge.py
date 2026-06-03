@@ -34,10 +34,8 @@ class EdgeWL(GraphEncoder):
 
             g = self._check_graph(graph)
 
-            # -----------------------------------------
-            # STEP 1: Initialize edge labels
-            # -----------------------------------------
 
+            # Initialize edge labels
             edge_labels = {}
 
             for u, v, data in g.edges(data=True):

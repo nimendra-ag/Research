@@ -87,9 +87,11 @@ class WL_AKSVD:
 
         aksvd = AKSVD().fit(training_graph_embeddings=graph_embeddings)
 
+        #generating sparse vectors for graphs for training the ml models
         graph_embeddings_ml_train = wl.generate_inferencing_embeddings(G_ML_train)
         X_ML_train = aksvd.infer(graph_embeddings_ml_train)
 
+        #generating sparse vectors for graphs for classification(inferencing the ml model)
         graph_embeddings_ml_test = wl.generate_inferencing_embeddings(G_test)
         X_ML_test = aksvd.infer(graph_embeddings_ml_test)
 

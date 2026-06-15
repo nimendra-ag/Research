@@ -1,21 +1,23 @@
 from graph_encoders.graph_encoder import GraphEncoder
 import numpy as np
-from gensim.models.doc2vec import Doc2Vec, TaggedDocument
+from gensim.models.doc2vec import TaggedDocument
 from karateclub.utils.treefeatures import WeisfeilerLehmanHashing
 
 from collections import Counter
+
 
 class WL(GraphEncoder):
     def __init__(
             self,
             wl_iterations: int = 2,
-            attributed: bool = False,
-            erase_base_features: bool = False,
+            attributed: bool = True,
+            erase_base_features: bool = True,
             n_vocab: int = 1000,
-            min_count: int = 5,
-            epochs: int = 10
+            min_features: int = 50
     ):
-        super().__init__(name="WL")
+
+        super().__init__(name="ImbalanceAwareWL")
+
         self.seed = 42
         self.vocab = None
         self.graph_embeddings = None
@@ -23,14 +25,18 @@ class WL(GraphEncoder):
         self.attributed = attributed
         self.erase_base_features = erase_base_features
         self.n_vocab = n_vocab
-        self.min_count = min_count
-        self.epochs = epochs
+        self.min_features = min_features
 
-    def create_wl_hash(self, graphs):
+    def create_wl_hash(self, graph_list):
+
         documents = []
-        for graph in graphs:
+
+        for graph in graph_list:
             g = self._check_graph(graph)
-            document = WeisfeilerLehmanHashing(g, self.wl_iterations, self.attributed, self.erase_base_features)
+
+            document = WeisfeilerLehmanHashing(
+                g, self.wl_iterations, self.attributed, self.erase_base_features)
+
             documents.append(document)
 
         documents = [
@@ -40,24 +46,72 @@ class WL(GraphEncoder):
 
         return documents
 
-    def create_vocab(self, corpus):
-        d2v_model = Doc2Vec(vector_size=self.n_vocab, min_count=self.min_count, epochs=self.epochs)
+    def create_vocab(self, corpus, labels):
+        majority_df = Counter()
+        minority_df = Counter()
 
-        # d2v_model.build_vocab(train_corpus)
-        total_words, corpus_count = d2v_model.scan_vocab(
-            corpus_iterable=corpus, corpus_file=None,
-            progress_per=10000, trim_rule=None
+        majority_graphs = 0
+        minority_graphs = 0
+
+        for doc, label in zip(corpus, labels):
+
+            # unique subtree hashes in this graph
+            # document frequency instead of raw counts
+            unique_features = Counter(doc.words)
+            if label == -1:
+                majority_graphs += 1
+                for feature in unique_features:
+                    majority_df[feature] += 1
+            else:
+                minority_graphs += 1
+                for feature in unique_features:
+                    minority_df[feature] += 1
+
+        all_features = set(list(majority_df.keys()) + list(minority_df.keys()))
+
+        scored_vocab = []
+
+        for feature in all_features:
+            p_majority = majority_df[feature] / majority_graphs
+
+            p_minority = (minority_df[feature] / minority_graphs)
+
+            # Simple HD-inspired distance
+            discriminative_score = abs(np.sqrt(p_majority) - np.sqrt(p_minority))
+
+            total_presence = p_majority + p_minority
+
+            # # Final score
+            # lambda_weight = 0.3
+
+            # score = (
+           #  total_presence
+           #  + lambda_weight * discriminative_score
+           # )
+            score = total_presence * discriminative_score
+            scored_vocab.append((feature, score))
+
+        # Sort features by discriminative importance
+        scored_vocab = sorted(
+            scored_vocab,
+            key=lambda x: x[1],
+            reverse=True
         )
-        d2v_model.corpus_count = corpus_count
-        d2v_model.corpus_total_words = total_words
-        d2v_model.prepare_vocab(update=False, keep_raw_vocab=True, trim_rule=None)
 
-        sorted_vocab = (sorted(d2v_model.raw_vocab.items(), key=lambda item: item[1], reverse=True))
+        # Adaptive selection
+        scores = np.array([x[1] for x in scored_vocab])
 
-        trimmed_vocab = sorted_vocab[0:self.n_vocab]
+        threshold = scores.mean() - scores.std()
+        trimmed_vocab = [item for item in scored_vocab if item[1] >= threshold]
+
+        # fallback if too few selected
+        print(f"selected {len(trimmed_vocab)} from the adaptive selection method")
+        if len(trimmed_vocab) < 50:
+            trimmed_vocab = scored_vocab[:self.n_vocab]
 
         self.n_vocab = len(trimmed_vocab)
         return trimmed_vocab
+
 
     def calc_coefficients(self, corpus):
 
@@ -77,15 +131,17 @@ class WL(GraphEncoder):
 
         return sparse_vector
 
-    def generate_training_embeddings(self, graphs):
+    def generate_training_embeddings(self, graphs, labels):
         self._set_seed()
         documents = self.create_wl_hash(graphs)
-        self.vocab = self.create_vocab(documents)
+        self.vocab = self.create_vocab(documents, labels)
         train_graph_embeddings = self.calc_coefficients(documents)
         return train_graph_embeddings
 
     def generate_inferencing_embeddings(self, graphs):
         self._set_seed()
         documents = self.create_wl_hash(graphs)
-        infer_graph_embeddings = self.calc_coefficients(documents)
+        infer_graph_embeddings = self.calc_coefficients(
+            documents
+        )
         return infer_graph_embeddings

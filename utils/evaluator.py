@@ -79,12 +79,14 @@ from sklearn.calibration import CalibratedClassifierCV
 
 
 class Evaluator:
-    def __init__(self, X_train, y_train, X_test, y_test, random_state=0):
+    def __init__(self, X_train, y_train, X_test, y_test, dl_model, dataset, random_state=0):
         self.X_train = X_train
         self.X_test = X_test
         self.y_train = y_train
         self.y_test = y_test
         self.random_state = random_state
+        self.dl_model = dl_model
+        self.dataset = dataset
 
     def _evaluate_model(self, model, model_name):
 

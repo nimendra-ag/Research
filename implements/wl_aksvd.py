@@ -1,16 +1,26 @@
-import os
-import sys
-
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
-
 from dict_learners.aksvd import AKSVD
 from graph_encoders.wl import WL
 from utils.graph_data import GraphDataLoader
 from utils.evaluator import Evaluator
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MaxAbsScaler
+
+data_loader = GraphDataLoader()
+
+graphs, y = data_loader.nci_full_graphs, data_loader.nci_full_labels
+
+G_train, G_test, y_train, y_test = train_test_split(
+    graphs, y,
+    test_size=0.2,
+    random_state=42
+)
+
+G_vocab_train, G_ML_train, y_vocab_train, y_ML_train = train_test_split(
+    G_train, y_train,
+    test_size=0.75,
+    random_state=42
+)
+
 
 #-------------------------Without overfit protection-------------------------#
 # # load graph data
@@ -62,25 +72,16 @@ from sklearn.preprocessing import MaxAbsScaler
 # results_gradient_boosting = evaluator.predict_gradient_boosting()
 # print(results_gradient_boosting)
 
+# First divide the data into train and test sets.
 
 class WL_AKSVD:
-    def __init__(self, data_loader):
+    def __init__(self):
         self.implementation = "WL_AKSVD"
-        self.data_loader = data_loader
 
-    def run(self):
-        # load graph data
-        graphs, y = self.data_loader.nci_full_graphs, self.data_loader.nci_full_labels
-
-        # First divide the data into train and test sets.
-        G_train, G_test, y_train, y_test = train_test_split(graphs, y, test_size=0.2, random_state=42)
-
-        # divide the train set further into vocab training and ML training sets
-        G_vocab_train, G_ML_train, y_vocab_train, y_ML_train = train_test_split(G_train, y_train, test_size=0.75,
-                                                                                random_state=42)
+    def run(self, G_vocab_train, y_vocab_train, G_ML_train, G_test, y_ML_train, y_test):
 
         wl = WL()
-        graph_embeddings = wl.generate_training_embeddings(G_vocab_train)
+        graph_embeddings = wl.generate_training_embeddings(G_vocab_train, y_vocab_train)
 
         aksvd = AKSVD().fit(training_graph_embeddings=graph_embeddings)
 
@@ -95,7 +96,7 @@ class WL_AKSVD:
         X_ML_test_scaled = scaler.transform(X_ML_test)
 
         # Model evaluation
-        evaluator = Evaluator(X_ML_train_scaled, y_ML_train, X_ML_test_scaled, y_test)
+        evaluator = Evaluator(X_ML_train_scaled, y_ML_train, X_ML_test_scaled, y_test, dl_model="wl_aksvd", dataset="nci-full")
         results_logistic_reg = evaluator.predict_logistic_regression()
         print(results_logistic_reg)
 
@@ -108,6 +109,5 @@ class WL_AKSVD:
         results_random_forest = evaluator.predict_random_forest()
         print(results_random_forest)
 
-data_loader = GraphDataLoader()
-wl_ksvd = WL_AKSVD(data_loader)
-wl_ksvd.run()
+wl_ksvd = WL_AKSVD()
+wl_ksvd.run(G_vocab_train, y_vocab_train, G_ML_train, G_test, y_ML_train, y_test)

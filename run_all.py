@@ -4,27 +4,35 @@ from implements.wl_csfddl import WL_CSFDDL
 from implements.wl_fddl import WL_FDDL
 from utils.evaluator import Evaluator
 from utils.graph_data import GraphDataLoader
+from sklearn.model_selection import train_test_split
+
 
 data_loader = GraphDataLoader()
 
 def main():
-    # print("Running all implementations...")
+    print("Running all implementations...")
 
-    # wl_aksvd = WL_AKSVD(data_loader)
-    # print(f"Running {wl_aksvd.implementation}...")
-    # wl_aksvd.run()
+    graphs, y = data_loader.nci_full_graphs, data_loader.nci_full_labels
 
-    # wl_bayesian = WL_BAYESIAN(data_loader)
-    # print(f"Running {wl_bayesian.implementation}...")
-    # wl_bayesian.run()
-    
-    wl_fddl = WL_FDDL(data_loader)
-    print(f"Running {wl_fddl.implementation}...")
-    wl_fddl.run()
-    
-    wl_csfddl = WL_CSFDDL(data_loader)
-    print(f"Running {wl_csfddl.implementation}...")
-    wl_csfddl.run()
+    G_train, G_test, y_train, y_test = train_test_split(
+        graphs, y,
+        test_size=0.2,
+        random_state=42
+    )
+
+    G_vocab_train, G_ML_train, y_vocab_train, y_ML_train = train_test_split(
+        G_train, y_train,
+        test_size=0.75,
+        random_state=42
+    )
+
+    wl_aksvd = WL_AKSVD()
+    print(f"Running {wl_aksvd.implementation}...")
+    wl_aksvd.run(G_vocab_train, y_vocab_train, G_ML_train, G_test, y_ML_train, y_test)
+
+    wl_bayesian = WL_BAYESIAN()
+    print(f"Running {wl_bayesian.implementation}...")
+    wl_bayesian.run(G_vocab_train, G_ML_train, G_test, y_ML_train, y_test)
 
 if __name__ == "__main__":
     main()

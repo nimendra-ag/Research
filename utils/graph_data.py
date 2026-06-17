@@ -31,7 +31,7 @@ class GraphDataLoader:
         filename = f"{id}total-connect.sdf"
         filepath = os.path.join(DATASET_DIR, filename)
 
-        supplier = Chem.SDMolSupplier(filepath, removeHs=False)
+        supplier = Chem.SDMolSupplier(filepath, sanitize=False, removeHs=False)
         for mol in supplier:
             if mol is None:
                 continue

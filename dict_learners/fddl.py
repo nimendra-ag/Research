@@ -30,6 +30,10 @@ class FDDL(DictLearner):
 
     def _soft_threshold(self, X: np.ndarray, tau: float) -> np.ndarray:
         return np.sign(X) * np.maximum(np.abs(X) - tau, 0.0)
+    
+    def _step_size(self, D):
+        L = 2.0 * (np.linalg.norm(D, 2) ** 2) + 2.0 * self.lambda2 * (1.0 + self.eta)
+        return 1.0 / (1.05 * L)
 
     def _compute_gradient_Xi(self, Ai, D, Xi, class_idx, k, lambda2, eta, M_global):
         grad_global = -2 * D.T @ (Ai - D @ Xi)
@@ -57,6 +61,7 @@ class FDDL(DictLearner):
 
     def _update_X(self, A, D, X, k, n_classes, class_sizes):
         M_global = np.mean(X, axis=1, keepdims=True)
+        t = self._step_size(D)
         col_start = 0
         for i in range(n_classes):
             col_end = col_start + class_sizes[i]
@@ -65,8 +70,8 @@ class FDDL(DictLearner):
 
             for _ in range(self.ipm_iters):
                 grad = self._compute_gradient_Xi(Ai, D, Xi, i, k, self.lambda2, self.eta, M_global)
-                Xi = Xi - self.lr * grad
-                Xi = self._soft_threshold(Xi, self.lambda1 * self.lr)
+                Xi = Xi - t * grad
+                Xi = self._soft_threshold(Xi, self.lambda1 * t)
 
             X[:, col_start:col_end] = Xi
             col_start = col_end
@@ -160,11 +165,12 @@ class FDDL(DictLearner):
         """Uses ISTA to find sparse codes for new testing data over the global learned D"""
         A_test = infer_graph_embeddings.T
         Z = np.zeros((self.D.shape[1], A_test.shape[1]))
+        t = self._step_size(self.D)
         
         # Standard sparse coding inference using learned Dictionary
-        for _ in range(self.ipm_iters * 2): # Run a bit longer for inference
+        for _ in range(self.ipm_iters * 2):
             grad = -2 * self.D.T @ (A_test - self.D @ Z)
-            Z = Z - self.lr * grad
-            Z = self._soft_threshold(Z, self.lambda1 * self.lr)
+            Z = Z - t * grad
+            Z = self._soft_threshold(Z, self.lambda1 * t)
             
         return Z.T # Return shape (n_samples, total_atoms)

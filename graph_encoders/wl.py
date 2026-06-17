@@ -57,39 +57,33 @@ class WL(GraphEncoder):
 
             # unique subtree hashes in this graph
             # document frequency instead of raw counts
-            unique_features = Counter(doc.words)
+            unique_words = Counter(doc.words)
             if label == -1:
                 majority_graphs += 1
-                for feature in unique_features:
-                    majority_df[feature] += 1
+                for word in unique_words:
+                    majority_df[word] += 1
             else:
                 minority_graphs += 1
-                for feature in unique_features:
-                    minority_df[feature] += 1
+                for word in unique_words:
+                    minority_df[word] += 1
 
-        all_features = set(list(majority_df.keys()) + list(minority_df.keys()))
+        all_words = set(list(majority_df.keys()) + list(minority_df.keys()))
 
         scored_vocab = []
 
-        for feature in all_features:
-            p_majority = majority_df[feature] / majority_graphs
+        for word in all_words:
+            p_majority = majority_df[word] / majority_graphs
 
-            p_minority = (minority_df[feature] / minority_graphs)
+            p_minority = (minority_df[word] / minority_graphs)
 
-            # Simple HD-inspired distance
             discriminative_score = abs(np.sqrt(p_majority) - np.sqrt(p_minority))
 
             total_presence = p_majority + p_minority
 
-            # # Final score
-            # lambda_weight = 0.3
+            # Final score
 
-            # score = (
-           #  total_presence
-           #  + lambda_weight * discriminative_score
-           # )
             score = total_presence * discriminative_score
-            scored_vocab.append((feature, score))
+            scored_vocab.append((word, score))
 
         # Sort features by discriminative importance
         scored_vocab = sorted(
@@ -98,7 +92,7 @@ class WL(GraphEncoder):
             reverse=True
         )
 
-        # Adaptive selection
+        # selection
         scores = np.array([x[1] for x in scored_vocab])
 
         threshold = scores.mean() - scores.std()
@@ -111,7 +105,6 @@ class WL(GraphEncoder):
 
         self.n_vocab = len(trimmed_vocab)
         return trimmed_vocab
-
 
     def calc_coefficients(self, corpus):
 

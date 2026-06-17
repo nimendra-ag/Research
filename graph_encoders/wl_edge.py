@@ -34,9 +34,7 @@ class EdgeWL(GraphEncoder):
 
             g = self._check_graph(graph)
 
-            # -----------------------------------------
-            # STEP 1: Initialize edge labels
-            # -----------------------------------------
+            # Initialize edge labels
 
             edge_labels = {}
 
@@ -56,9 +54,7 @@ class EdgeWL(GraphEncoder):
 
             graph_features = list(edge_labels.values())
 
-            # -----------------------------------------
-            # STEP 2: WL iterations on edges
-            # -----------------------------------------
+            # WL iterations on edges
 
             for _ in range(self.wl_iterations):
 

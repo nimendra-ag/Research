@@ -76,18 +76,12 @@ class WL(GraphEncoder):
 
             p_minority = (minority_df[feature] / minority_graphs)
 
-            # Simple HD-inspired distance
             discriminative_score = abs(np.sqrt(p_majority) - np.sqrt(p_minority))
 
             total_presence = p_majority + p_minority
 
-            # # Final score
-            # lambda_weight = 0.3
-
-            # score = (
-           #  total_presence
-           #  + lambda_weight * discriminative_score
-           # )
+            # Final score
+           
             score = total_presence * discriminative_score
             scored_vocab.append((feature, score))
 
@@ -98,7 +92,7 @@ class WL(GraphEncoder):
             reverse=True
         )
 
-        # Adaptive selection
+        # selection
         scores = np.array([x[1] for x in scored_vocab])
 
         threshold = scores.mean() - scores.std()

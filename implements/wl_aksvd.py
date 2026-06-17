@@ -1,3 +1,6 @@
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from dict_learners.aksvd import AKSVD
 from graph_encoders.wl import WL
 from utils.graph_data import GraphDataLoader

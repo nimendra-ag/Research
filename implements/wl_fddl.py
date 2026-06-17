@@ -1,3 +1,8 @@
+import sys
+import os
+# Add the project root to the sys.path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from utils.graph_data import GraphDataLoader
 
 from dict_learners.fddl import FDDL
@@ -100,19 +105,13 @@ class WL_FDDL:
         X_ML_test_scaled = scaler.transform(X_ML_test)
 
         # Model evaluation
-        evaluator = Evaluator(X_ML_train_scaled, y_ML_train, X_ML_test_scaled, y_test)
+        evaluator = Evaluator(X_ML_train_scaled, y_ML_train, X_ML_test_scaled, y_test, dl_model="wl_fddl", dataset="nci-full")
         results_logistic_reg = evaluator.predict_logistic_regression()
         print(results_logistic_reg)
 
         results_gradient_boosting = evaluator.predict_gradient_boosting()
         print(results_gradient_boosting)
 
-        results_svm = evaluator.predict_svm()
-        print(results_svm)
-
-        results_random_forest = evaluator.predict_random_forest()
-        print(results_random_forest)
-        
         results_svm = evaluator.predict_svm()
         print(results_svm)
 

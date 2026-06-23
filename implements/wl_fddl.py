@@ -5,7 +5,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.graph_data import GraphDataLoader
 
-from dict_learners.fddl import FDDL
+from dict_learners.fddl_gpu import FDDLGPU
 from graph_encoders.wl import WL
 from utils.evaluator import Evaluator
 from sklearn.model_selection import train_test_split
@@ -91,14 +91,14 @@ class WL_FDDL:
         wl = WL()
         graph_embeddings = wl.generate_training_embeddings(G_vocab_train, y_vocab_train)
 
-        fddl = FDDL()
-        fddl.fit(training_graph_embeddings=graph_embeddings, y_train=y_vocab_train)
+        fddl_gpu = FDDLGPU()
+        fddl_gpu.fit(training_graph_embeddings=graph_embeddings, y_train=y_vocab_train)
 
         graph_embeddings_ml_train = wl.generate_inferencing_embeddings(G_ML_train)
-        X_ML_train = fddl.infer(graph_embeddings_ml_train)
+        X_ML_train = fddl_gpu.infer(graph_embeddings_ml_train)
 
         graph_embeddings_ml_test = wl.generate_inferencing_embeddings(G_test)
-        X_ML_test = fddl.infer(graph_embeddings_ml_test)
+        X_ML_test = fddl_gpu.infer(graph_embeddings_ml_test)
 
         scaler = MaxAbsScaler()
         X_ML_train_scaled = scaler.fit_transform(X_ML_train)

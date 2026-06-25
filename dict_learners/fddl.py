@@ -5,7 +5,7 @@ from dict_learners.dict_learner import DictLearner
 class FDDL(DictLearner):
     def __init__(
             self,
-            k: int = 32,
+            k: int = 512,
             lambda1: float = 0.1,
             lambda2: float = 0.1,
             eta: float = 1.0,
@@ -132,6 +132,7 @@ class FDDL(DictLearner):
         total_atoms = self.k * n_classes
 
         # Initialize D 
+        np.random.seed(42) 
         self.D = np.zeros((features, total_atoms))
         col_start = 0
         for i in range(n_classes):

@@ -1,11 +1,12 @@
 import torch
 import numpy as np
+import random
 from dict_learners.dict_learner import DictLearner
 
 class FDDLGPU(DictLearner):
     def __init__(
             self,
-            k: int = 32,
+            k: int = 2048,
             lambda1: float = 0.1,
             lambda2: float = 0.1,
             eta: float = 1.0,
@@ -147,6 +148,8 @@ class FDDLGPU(DictLearner):
         total_atoms = self.k * n_classes
 
         # Setup weights on GPU
+        torch.manual_seed(42)                  # <-- add this
+        torch.cuda.manual_seed(42)
         self.D = torch.zeros((features, total_atoms), device=self.device)
         col_start = 0
         

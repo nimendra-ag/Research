@@ -82,9 +82,9 @@ G_vocab_train, G_ML_train, y_vocab_train, y_ML_train = train_test_split(
 # print("Gradient Boosting:", results_gradient_boosting)
 
 
-class WL_FDDL:
+class WL_FDDLGPU:
     def __init__(self):
-        self.implementation = "WL_FDDL"
+        self.implementation = "WL_FDDLGPU"
 
     def run(self, G_vocab_train, y_vocab_train, G_ML_train, G_test, y_ML_train, y_test):
 
@@ -105,7 +105,7 @@ class WL_FDDL:
         X_ML_test_scaled = scaler.transform(X_ML_test)
 
         # Model evaluation
-        evaluator = Evaluator(X_ML_train_scaled, y_ML_train, X_ML_test_scaled, y_test, dl_model="wl_fddl", dataset="nci-full")
+        evaluator = Evaluator(X_ML_train_scaled, y_ML_train, X_ML_test_scaled, y_test, dl_model="wl_fddl_gpu", dataset="nci-full")
         results_logistic_reg = evaluator.predict_logistic_regression()
         print(results_logistic_reg)
 
@@ -119,5 +119,5 @@ class WL_FDDL:
         print(results_random_forest)
         
 data_loader = GraphDataLoader()
-wl_fddl = WL_FDDL()
-wl_fddl.run(G_vocab_train, y_vocab_train, G_ML_train, G_test, y_ML_train, y_test)
+wl_fddl_gpu = WL_FDDLGPU()
+wl_fddl_gpu.run(G_vocab_train, y_vocab_train, G_ML_train, G_test, y_ML_train, y_test)

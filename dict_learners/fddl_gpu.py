@@ -1,11 +1,12 @@
+import torch
 import numpy as np
-import scipy.optimize as opt
+import random
 from dict_learners.dict_learner import DictLearner
 
-class FDDL(DictLearner):
+class FDDLGPU(DictLearner):
     def __init__(
             self,
-            k: int = 512,
+            k: int = 2048,
             lambda1: float = 0.1,
             lambda2: float = 0.1,
             eta: float = 1.0,
@@ -13,8 +14,8 @@ class FDDL(DictLearner):
             lr: float = 0.01,
             ipm_iters: int = 15
     ):
-        super().__init__(name="FDDL")
-        self.k = k  # Atoms per class sub-dictionary
+        super().__init__(name="FDDLGPU")
+        self.k = k  
         self.lambda1 = lambda1
         self.lambda2 = lambda2
         self.eta = eta
@@ -22,30 +23,35 @@ class FDDL(DictLearner):
         self.lr = lr
         self.ipm_iters = ipm_iters
         
+        # Check and assign GPU automatically
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
         self.D = None
         self.X_train = None
         self.classes_ = None
         self.class_sizes_ = None
-        self.M_i = {} # Store mean vectors for native FDDL classification
+        self.M_i = {} 
 
-    def _soft_threshold(self, X: np.ndarray, tau: float) -> np.ndarray:
-        return np.sign(X) * np.maximum(np.abs(X) - tau, 0.0)
+    def _soft_threshold(self, X: torch.Tensor, tau: float) -> torch.Tensor:
+        # Pytorch handles soft thresholding easily with sign and relu
+        return torch.sign(X) * torch.nn.functional.relu(torch.abs(X) - tau)
     
-    def _step_size(self, D):
-        L = 2.0 * (np.linalg.norm(D, 2) ** 2) + 2.0 * self.lambda2 * (1.0 + self.eta)
+    def _step_size(self, D: torch.Tensor):
+        # ord=2 calculates spectral norm (largest singular value)
+        L = 2.0 * (torch.linalg.matrix_norm(D, ord=2) ** 2) + 2.0 * self.lambda2 * (1.0 + self.eta)
         return 1.0 / (1.05 * L)
 
     def _compute_gradient_Xi(self, Ai, D, Xi, class_idx, k, lambda2, eta, M_global):
         grad_global = -2 * D.T @ (Ai - D @ Xi)
-
-        grad_local = np.zeros_like(Xi)
+        
+        grad_local = torch.zeros_like(Xi)
         start_idx = class_idx * k
         end_idx = start_idx + k
         Di = D[:, start_idx:end_idx]
         Xii = Xi[start_idx:end_idx, :]
         grad_local[start_idx:end_idx, :] = -2 * Di.T @ (Ai - Di @ Xii)
 
-        grad_sabotage = np.zeros_like(Xi)
+        grad_sabotage = torch.zeros_like(Xi)
         for j in range(D.shape[1] // k):
             if j != class_idx:
                 j_start = j * k
@@ -54,14 +60,15 @@ class FDDL(DictLearner):
                 Xij = Xi[j_start:j_end, :]
                 grad_sabotage[j_start:j_end, :] = 2 * Dj.T @ (Dj @ Xij)
 
-        Mi = np.mean(Xi, axis=1, keepdims=True)
+        Mi = torch.mean(Xi, dim=1, keepdim=True)
         grad_fisher = 2 * (Xi - Mi) - 2 * (Mi - M_global) + 2 * eta * Xi
 
         return grad_global + grad_local + grad_sabotage + (lambda2 * grad_fisher)
 
     def _update_X(self, A, D, X, k, n_classes, class_sizes):
-        M_global = np.mean(X, axis=1, keepdims=True)
+        M_global = torch.mean(X, dim=1, keepdim=True)
         t = self._step_size(D)
+        
         col_start = 0
         for i in range(n_classes):
             col_end = col_start + class_sizes[i]
@@ -84,7 +91,7 @@ class FDDL(DictLearner):
             Di = D[:, start_idx:end_idx]
             Xi_all = X[start_idx:end_idx, :]
 
-            A_hat = A.copy()
+            A_hat = A.clone()
             for j in range(n_classes):
                 if j != i:
                     j_start = j * k
@@ -96,82 +103,96 @@ class FDDL(DictLearner):
             Ai = A[:, col_start:col_end]
             Xii = Xi_all[:, col_start:col_end]
 
-            X_others = np.delete(Xi_all, np.s_[col_start:col_end], axis=1)
-            zeros = np.zeros((A.shape[0], X_others.shape[1]))
+            # Equivalent slicing/concats in pyTorch
+            X_others = torch.cat((Xi_all[:, :col_start], Xi_all[:, col_end:]), dim=1)
+            zeros = torch.zeros((A.shape[0], X_others.shape[1]), device=self.device)
 
-            Lambda_i = np.hstack((A_hat, Ai, zeros))
-            Zi = np.hstack((Xi_all, Xii, X_others))
+            Lambda_i = torch.cat((A_hat, Ai, zeros), dim=1)
+            Zi = torch.cat((Xi_all, Xii, X_others), dim=1)
 
             for atom_idx in range(k):
-                d_l = Di[:, atom_idx].reshape(-1, 1)
-                z_l = Zi[atom_idx, :].reshape(1, -1)
+                d_l = Di[:, atom_idx].view(-1, 1)
+                z_l = Zi[atom_idx, :].view(1, -1)
 
                 Y = Lambda_i - (Di @ Zi) + (d_l @ z_l)
                 d_new = Y @ z_l.T
-                norm_d = np.linalg.norm(d_new)
+                norm_d = torch.norm(d_new)
                 Di[:, atom_idx] = (d_new / norm_d).flatten() if norm_d > 1e-10 else d_l.flatten()
 
             D[:, start_idx:end_idx] = Di
         return D
 
     def fit(self, training_graph_embeddings, y_train):
-        print(f"Training {self.name}...")
-        # Group data by class for FDDL contiguous block assumption
+        print(f"Training {self.name} on context [{self.device}]...")
+        
+        # Ensure y_train is numpy array for logical indexing 
+        if torch.is_tensor(y_train): y_train = y_train.cpu().numpy()
+        else: y_train = np.array(y_train)
+
+        # Build class distributions
         self.classes_ = np.unique(y_train)
         n_classes = len(self.classes_)
         
-        A_grouped = []
         self.class_sizes_ = []
+        A_grouped = []
         for c in self.classes_:
             A_c = training_graph_embeddings[y_train == c].T
             A_grouped.append(A_c)
             self.class_sizes_.append(A_c.shape[1])
             
-        A = np.hstack(A_grouped)
+        # Convert concatenated data over to the GPU
+        A_np = np.hstack(A_grouped)
+        A = torch.tensor(A_np, dtype=torch.float32, device=self.device)
+        
         features = A.shape[0]
         total_atoms = self.k * n_classes
 
-        # Initialize D 
-        np.random.seed(42) 
-        self.D = np.zeros((features, total_atoms))
+        # Setup weights on GPU
+        torch.manual_seed(42)                  # <-- add this
+        torch.cuda.manual_seed(42)
+        self.D = torch.zeros((features, total_atoms), device=self.device)
         col_start = 0
+        
         for i in range(n_classes):
             Ai = A[:, col_start:col_start + self.class_sizes_[i]]
-            idx = np.random.choice(self.class_sizes_[i], self.k, replace=True)
+            idx = torch.randint(0, self.class_sizes_[i], (self.k,), device=self.device)
             Di = Ai[:, idx]
-            Di = Di / np.linalg.norm(Di, axis=0) 
+            Di = Di / torch.norm(Di, dim=0) 
             self.D[:, i * self.k:(i + 1) * self.k] = Di
             col_start += self.class_sizes_[i]
 
-        X = np.zeros((total_atoms, sum(self.class_sizes_)))
+        X = torch.zeros((total_atoms, sum(self.class_sizes_)), device=self.device)
 
-        # Alternating Optimization Loop
+        # Execute Alternate Optimizations directly on VRAM 
         for it in range(self.max_iter):
             X = self._update_X(A, self.D, X, self.k, n_classes, self.class_sizes_)
             self.D = self._update_D(A, self.D, X, self.k, n_classes, self.class_sizes_)
 
-        self.X_train = X
+        # Transfer back to RAM for external pipelines
+        self.X_train = X.cpu().numpy()
+        self.D = self.D.cpu()  # Store globally decoupled from device
 
-        # Store mean coefficients per class for native FDDL prediction
         col_start = 0
         for i, c in enumerate(self.classes_):
             col_end = col_start + self.class_sizes_[i]
-            Xi = X[:, col_start:col_end]
+            Xi = X[:, col_start:col_end].cpu().numpy()
             self.M_i[c] = np.mean(Xi, axis=1)
             col_start = col_end
 
         return self
 
     def infer(self, infer_graph_embeddings):
-        """Uses ISTA to find sparse codes for new testing data over the global learned D"""
-        A_test = infer_graph_embeddings.T
-        Z = np.zeros((self.D.shape[1], A_test.shape[1]))
-        t = self._step_size(self.D)
+        """Uses ISTA logic on GPU quickly"""
+        # Uploads items to Device 
+        A_test = torch.tensor(infer_graph_embeddings.T, dtype=torch.float32, device=self.device)
+        D_gpu = self.D.to(self.device) 
+        Z = torch.zeros((D_gpu.shape[1], A_test.shape[1]), device=self.device)
+        t = self._step_size(D_gpu)
         
-        # Standard sparse coding inference using learned Dictionary
         for _ in range(self.ipm_iters * 2):
-            grad = -2 * self.D.T @ (A_test - self.D @ Z)
+            grad = -2 * D_gpu.T @ (A_test - D_gpu @ Z)
             Z = Z - t * grad
             Z = self._soft_threshold(Z, self.lambda1 * t)
             
-        return Z.T # Return shape (n_samples, total_atoms)
+        # Downloads array structure down locally.
+        return Z.T.cpu().numpy() 

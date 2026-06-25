@@ -7,6 +7,7 @@ from utils.graph_data import GraphDataLoader
 from utils.evaluator import Evaluator
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MaxAbsScaler
+from datetime import datetime
 
 data_loader = GraphDataLoader()
 
@@ -83,6 +84,8 @@ class WL_AKSVD:
 
     def run(self, G_vocab_train, y_vocab_train, G_ML_train, G_test, y_ML_train, y_test):
 
+        start = datetime.now().strftime("%Y%m%d_%H%M%S")
+
         wl = WL()
         graph_embeddings = wl.generate_training_embeddings(G_vocab_train, y_vocab_train)
 
@@ -111,6 +114,22 @@ class WL_AKSVD:
 
         results_random_forest = evaluator.predict_random_forest()
         print(results_random_forest)
+
+        final_output = f"""
+            {results_logistic_reg}
+            {results_gradient_boosting}
+            {results_svm}
+            {results_random_forest}
+            """
+
+        end = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        filename = f"results_{start}_{end}.txt"
+
+        with open(f"results/{filename}", "w", encoding="utf-8") as f:
+            f.write(final_output)
+
+        print(f"Saved results to {filename}")
 
 wl_ksvd = WL_AKSVD()
 wl_ksvd.run(G_vocab_train, y_vocab_train, G_ML_train, G_test, y_ML_train, y_test)

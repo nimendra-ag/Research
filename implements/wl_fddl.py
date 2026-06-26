@@ -3,9 +3,10 @@ import os
 # Add the project root to the sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from dict_learners import fddl
+from dict_learners.fddl import FDDL
 from utils.graph_data import GraphDataLoader
 
-from dict_learners.fddl_gpu import FDDLGPU
 from graph_encoders.wl import WL
 from utils.evaluator import Evaluator
 from sklearn.model_selection import train_test_split
@@ -94,14 +95,25 @@ class WL_FDDL:
         wl = WL()
         graph_embeddings = wl.generate_training_embeddings(G_vocab_train, y_vocab_train)
 
-        fddl_gpu = FDDLGPU()
-        fddl_gpu.fit(training_graph_embeddings=graph_embeddings, y_train=y_vocab_train)
+        fddl = FDDL()
+        fddl.fit(training_graph_embeddings=graph_embeddings, y_train=y_vocab_train)
 
         graph_embeddings_ml_train = wl.generate_inferencing_embeddings(G_ML_train)
-        X_ML_train = fddl_gpu.infer(graph_embeddings_ml_train)
+        X_ML_train = fddl.infer(graph_embeddings_ml_train)
 
         graph_embeddings_ml_test = wl.generate_inferencing_embeddings(G_test)
-        X_ML_test = fddl_gpu.infer(graph_embeddings_ml_test)
+        X_ML_test = fddl.infer(graph_embeddings_ml_test)
+
+        # --- Native classifiers (no external ML needed) ---
+        from utils.src_classifier import SRCClassifier
+
+        # Pure SRC (works with any structured DL: FDDL, DPL, DLSI...)
+        src = SRCClassifier(fddl, gamma=0.0)
+        print("Pure SRC:", src.evaluate(graph_embeddings_ml_test, y_test))
+
+        # FDDL-native (SRC + coefficient distance to class means)
+        src_fddl = SRCClassifier(fddl, gamma=0.5)
+        print("FDDL-native:", src_fddl.evaluate(graph_embeddings_ml_test, y_test))
 
         scaler = MaxAbsScaler()
         X_ML_train_scaled = scaler.fit_transform(X_ML_train)
@@ -130,7 +142,7 @@ class WL_FDDL:
 
         end = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        filename = f"results_{start}_{end}.txt"
+        filename = f"results_wl_fddl_{fddl.k}_{start}_{end}.txt"
 
         with open(f"results/{filename}", "w", encoding="utf-8") as f:
             f.write(final_output)

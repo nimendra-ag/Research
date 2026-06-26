@@ -104,6 +104,17 @@ class WL_FDDLGPU:
         graph_embeddings_ml_test = wl.generate_inferencing_embeddings(G_test)
         X_ML_test = fddl_gpu.infer(graph_embeddings_ml_test)
 
+        # --- Native classifiers (no external ML needed) ---
+        from utils.src_classifier import SRCClassifier
+
+        # Pure SRC (works with any structured DL: FDDL, DPL, DLSI...)
+        src = SRCClassifier(fddl_gpu, gamma=0.0)
+        print("Pure SRC:", src.evaluate(graph_embeddings_ml_test, y_test))
+
+        # FDDL-native (SRC + coefficient distance to class means)
+        src_fddl = SRCClassifier(fddl_gpu, gamma=0.5)
+        print("FDDL-native:", src_fddl.evaluate(graph_embeddings_ml_test, y_test))
+
         scaler = MaxAbsScaler()
         X_ML_train_scaled = scaler.fit_transform(X_ML_train)
         X_ML_test_scaled = scaler.transform(X_ML_test)
@@ -131,7 +142,7 @@ class WL_FDDLGPU:
 
         end = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        filename = f"results_{start}_{end}.txt"
+        filename = f"results_wl_fddl_{fddl_gpu.k}_{start}_{end}.txt"
 
         with open(f"results/{filename}", "w", encoding="utf-8") as f:
             f.write(final_output)

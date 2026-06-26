@@ -98,7 +98,7 @@ class WL(GraphEncoder):
         return trimmed_vocab
 
     def calc_coefficients(self, corpus):
-        # Build index map for O(1) lookup instead of linear scan
+        # Build index map for O(1) lookup instead of linear scan    
         vocab_index = {word: idx for idx, (word, _) in enumerate(self.vocab)}
 
         sparse_vector = np.zeros((len(corpus), self.n_vocab))

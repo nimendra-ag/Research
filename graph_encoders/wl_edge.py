@@ -12,9 +12,9 @@ class EdgeWL(GraphEncoder):
             attributed: bool = True,
             erase_base_features: bool = True,
             n_vocab: int = 1000,
-            min_features: int = 50
+            min_features: int = 50,
+            max_vocab: int = 10000
     ):
-
         super().__init__(name="ImbalanceAwareEdgeWL")
 
         self.seed = 42
@@ -25,83 +25,60 @@ class EdgeWL(GraphEncoder):
         self.erase_base_features = erase_base_features
         self.n_vocab = n_vocab
         self.min_features = min_features
+        self.max_vocab = max_vocab
 
     def create_wl_hash(self, graph_list):
-
         documents = []
 
         for graph in graph_list:
-
             g = self._check_graph(graph)
-
 
             # Initialize edge labels
             edge_labels = {}
-
             for u, v, data in g.edges(data=True):
-
                 node_u = str(g.nodes[u].get("feature", "UNK"))
                 node_v = str(g.nodes[v].get("feature", "UNK"))
-
                 edge_type = str(data.get("bond_type", "SINGLE"))
 
-                # canonical ordering of node labels
+                # Canonical ordering of node labels
                 pair = sorted([node_u, node_v])
-
                 label = f"{pair[0]}-{edge_type}-{pair[1]}"
-
                 edge_labels[tuple(sorted((u, v)))] = label
 
             graph_features = list(edge_labels.values())
 
             # WL iterations on edges
-
             for _ in range(self.wl_iterations):
-
                 new_edge_labels = {}
 
                 for (u, v), current_label in edge_labels.items():
-
                     neighbor_labels = []
 
-                    # edges touching u
+                    # Edges touching u (excluding the current edge)
                     for nbr in g.neighbors(u):
-
                         if nbr == v:
                             continue
-
                         edge = tuple(sorted((u, nbr)))
-
                         if edge in edge_labels:
                             neighbor_labels.append(edge_labels[edge])
 
-                    # edges touching v
+                    # Edges touching v (excluding the current edge)
                     for nbr in g.neighbors(v):
-
                         if nbr == u:
                             continue
-
                         edge = tuple(sorted((v, nbr)))
-
                         if edge in edge_labels:
                             neighbor_labels.append(edge_labels[edge])
 
-                    neighbor_labels = sorted(neighbor_labels)
+                    neighbor_labels.sort()
 
-                    # aggregate neighboring edge labels
                     merged_label = (
-                        current_label
-                        + "_"
-                        + "_".join(neighbor_labels)
+                        current_label + "_" + "_".join(neighbor_labels)
                     )
-
-                    # hash merged label
                     hashed_label = str(hash(merged_label))
-
                     new_edge_labels[tuple(sorted((u, v)))] = hashed_label
 
                 edge_labels = new_edge_labels
-
                 graph_features.extend(edge_labels.values())
 
             documents.append(
@@ -114,125 +91,91 @@ class EdgeWL(GraphEncoder):
         return documents
 
     def create_vocab(self, corpus, labels):
+        unique_classes = sorted(set(labels))
+        n_classes = len(unique_classes)
 
-        majority_df = Counter()
-        minority_df = Counter()
-
-        majority_graphs = 0
-        minority_graphs = 0
+        # Per-class document frequency and class sizes
+        class_df = {c: Counter() for c in unique_classes}
+        class_counts = Counter(labels)
 
         for doc, label in zip(corpus, labels):
+            unique_features = set(doc.words)
+            for feature in unique_features:
+                class_df[label][feature] += 1
 
-            # document frequency instead of raw counts
-            unique_features = Counter(doc.words)
-
-            if label == -1:
-
-                majority_graphs += 1
-
-                for feature in unique_features:
-                    majority_df[feature] += 1
-
-            else:
-
-                minority_graphs += 1
-
-                for feature in unique_features:
-                    minority_df[feature] += 1
-
-        all_features = set(
-            list(majority_df.keys()) +
-            list(minority_df.keys())
-        )
+        all_features = set()
+        for df in class_df.values():
+            all_features.update(df.keys())
 
         scored_vocab = []
 
         for feature in all_features:
+            # Normalized document frequency per class
+            p = {
+                c: class_df[c][feature] / class_counts[c]
+                for c in unique_classes
+            }
 
-            p_majority = majority_df[feature] / majority_graphs
+            # Mean pairwise Hellinger distance
+            hellinger_sum = 0.0
+            n_pairs = 0
+            for i in range(n_classes):
+                for j in range(i + 1, n_classes):
+                    ci, cj = unique_classes[i], unique_classes[j]
+                    hellinger_sum += abs(np.sqrt(p[ci]) - np.sqrt(p[cj]))
+                    n_pairs += 1
 
-            p_minority = minority_df[feature] / minority_graphs
+            discriminative_score = hellinger_sum / n_pairs if n_pairs > 0 else 0.0
 
-            # HD-inspired discriminative score
-            discriminative_score = abs(
-                np.sqrt(p_majority) -
-                np.sqrt(p_minority)
-            )
-
-            total_presence = p_majority + p_minority
+            total_presence = sum(p.values()) / n_classes
 
             score = total_presence * discriminative_score
-
             scored_vocab.append((feature, score))
 
-        # Sort features by discriminative importance
-        scored_vocab = sorted(
-            scored_vocab,
-            key=lambda x: x[1],
-            reverse=True
-        )
+        scored_vocab.sort(key=lambda x: x[1], reverse=True)
 
-        # Adaptive selection
+        # Adaptive threshold selection
         scores = np.array([x[1] for x in scored_vocab])
-
         threshold = scores.mean() - scores.std()
+        trimmed_vocab = [item for item in scored_vocab if item[1] >= threshold]
 
-        trimmed_vocab = [
-            item for item in scored_vocab
-            if item[1] >= threshold
-        ]
+        print(f"Selected {len(trimmed_vocab)} features via adaptive selection")
 
-        # fallback if too few selected
-        print(f"selected {len(trimmed_vocab)} from the adaptive selection method")
-
+        # Fallback if too few selected
         if len(trimmed_vocab) < self.min_features:
             trimmed_vocab = scored_vocab[:self.n_vocab]
 
-        self.n_vocab = len(trimmed_vocab)
-
-
-      # limit vocabulary size
-        
-        if len(trimmed_vocab) > 10000:
-            trimmed_vocab = trimmed_vocab[:10000]
-            print(f"trimmed vocab to 10000")
+        # Cap vocabulary size
+        if len(trimmed_vocab) > self.max_vocab:
+            trimmed_vocab = trimmed_vocab[:self.max_vocab]
+            print(f"Capped vocabulary to {self.max_vocab}")
 
         self.n_vocab = len(trimmed_vocab)
-
         return trimmed_vocab
-    
+
     def calc_coefficients(self, corpus):
+        # Build index map for O(1) lookup
+        vocab_index = {word: idx for idx, (word, _) in enumerate(self.vocab)}
 
-        sparse_vector = np.zeros([len(corpus), self.n_vocab])
+        sparse_vector = np.zeros((len(corpus), self.n_vocab))
 
-        for i, document in enumerate(corpus):
-
-            words_count = Counter(document.words)
-
-            for j, (feature, _) in enumerate(self.vocab):
-
-                sparse_vector[i][j] = words_count[feature]
+        for i, doc in enumerate(corpus):
+            word_counts = Counter(doc.words)
+            for word, count in word_counts.items():
+                if word in vocab_index:
+                    sparse_vector[i, vocab_index[word]] = count
 
         return sparse_vector
 
     def generate_training_embeddings(self, graphs, labels):
-
         self._set_seed()
-
         documents = self.create_wl_hash(graphs)
-
         self.vocab = self.create_vocab(documents, labels)
-
         train_graph_embeddings = self.calc_coefficients(documents)
-
         return train_graph_embeddings
 
     def generate_inferencing_embeddings(self, graphs):
-
         self._set_seed()
-
         documents = self.create_wl_hash(graphs)
-
         infer_graph_embeddings = self.calc_coefficients(documents)
-
         return infer_graph_embeddings

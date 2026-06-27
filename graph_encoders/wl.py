@@ -25,6 +25,10 @@ class WL(GraphEncoder):
         self.n_vocab = n_vocab
         self.min_features = min_features
 
+        # Populated by create_vocab(); consumed by WLAKSVDInterpreter
+        self.class_df: dict = {}
+        self.class_counts: Counter = Counter()
+
     def create_wl_hash(self, graph_list):
         documents = []
 
@@ -54,6 +58,13 @@ class WL(GraphEncoder):
             unique_words = set(doc.words)
             for word in unique_words:
                 class_df[label][word] += 1
+
+        # ── Expose to interpreter ─────────────────────────────────────────────
+        # Stored before scoring so the interpreter always has the full statistics,
+        # even for tokens that are later trimmed from the final vocabulary.
+        self.class_df = class_df
+        self.class_counts = class_counts
+        # ─────────────────────────────────────────────────────────────────────
 
         all_words = set()
         for df in class_df.values():
@@ -98,7 +109,7 @@ class WL(GraphEncoder):
         return trimmed_vocab
 
     def calc_coefficients(self, corpus):
-        # Build index map for O(1) lookup instead of linear scan    
+        # Build index map for O(1) lookup instead of linear scan
         vocab_index = {word: idx for idx, (word, _) in enumerate(self.vocab)}
 
         sparse_vector = np.zeros((len(corpus), self.n_vocab))

@@ -1,0 +1,316 @@
+{'Precision': 0.47619047619047616, 'Recall': 0.02717391304347826, 'F1-Score': 0.051413881748071974, 'ROC-AUC': 0.7938710237777478, 'PR-AUC': 0.24756111349529675}
+{'Precision': 0.6231884057971014, 'Recall': 0.11684782608695653, 'F1-Score': 0.19679633867276888, 'ROC-AUC': 0.8123739255935254, 'PR-AUC': 0.33291236006348773}
+{'Precision': 0.41025641025641024, 'Recall': 0.043478260869565216, 'F1-Score': 0.07862407862407864, 'ROC-AUC': 0.7915523260441026, 'PR-AUC': 0.2465577100326656}
+{'Precision': 0.773109243697479, 'Recall': 0.25, 'F1-Score': 0.37782340862423003, 'ROC-AUC': 0.8657577320534328, 'PR-AUC': 0.49184626510392904}
+
+######################################################################
+# INTERPRETABILITY REPORT – TEST GRAPH 0  (true label: 1)
+######################################################################
+═════════════════════════════════════════════════════════════════
+  PREDICTION   : -1
+  CONFIDENCE   : 90.8%
+  ACTIVE ATOMS : 10
+═════════════════════════════════════════════════════════════════
+  CONTRIBUTION BREAKDOWN          [S = Supporting | O = Opposing]
+  Dictionary Atom            Bar                                   %
+─────────────────────────────────────────────────────────────────
+  Dict Atom   28 [O]         ████████████████░░░░░░░░░░░░░░   52.0%
+  Dict Atom  126 [S]         ███████░░░░░░░░░░░░░░░░░░░░░░░   22.6%
+  Dict Atom  118 [O]         ███░░░░░░░░░░░░░░░░░░░░░░░░░░░   11.2%
+  Dict Atom  109 [O]         ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░    5.6%
+  Dict Atom   43 [O]         █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    3.2%
+  Others                     ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░    5.3%
+═════════════════════════════════════════════════════════════════
+
+── LEVEL 1: Prediction Reasoning ─────────────────────────────────────────
+  Prediction : -1  (Confidence: 90.8%)
+  Atoms driving this prediction:
+    • Dict Atom   28   52.0%  [opposing]  activation=13.2936
+    • Dict Atom  126   22.6%  [supporting]  activation=-4.9166
+    • Dict Atom  118   11.2%  [opposing]  activation=1.2678
+    • Dict Atom  109    5.6%  [opposing]  activation=2.2082
+    • Dict Atom   43    3.2%  [opposing]  activation=2.0349
+
+── LEVEL 2: Dictionary Atom Composition ───────────────────────────────────
+
+  Dict Atom   28  |  non-zero WL features: 7245  |  sparsity: 0.000
+    Feature     49  weight=+0.8337  disc=0.0099  prevalence [-1: 94.41%  Cancerous: 96.43%]
+    Feature     26  weight=+0.2630  disc=0.0184  prevalence [-1: 60.77%  Cancerous: 55.95%]
+    Feature     73  weight=+0.2014  disc=0.0064  prevalence [-1: 65.99%  Cancerous: 67.56%]
+    Feature    105  weight=+0.1941  disc=0.0045  prevalence [-1: 41.48%  Cancerous: 42.86%]
+    Feature     19  weight=+0.1473  disc=0.0217  prevalence [-1: 81.26%  Cancerous: 86.01%]
+
+  Dict Atom  126  |  non-zero WL features: 7245  |  sparsity: 0.000
+    Feature     57  weight=+0.4517  disc=0.0079  prevalence [-1: 77.37%  Cancerous: 79.17%]
+    Feature      1  weight=+0.4487  disc=0.0832  prevalence [-1: 54.03%  Cancerous: 74.7%]
+    Feature     26  weight=-0.3089  disc=0.0184  prevalence [-1: 60.77%  Cancerous: 55.95%]
+    Feature      5  weight=+0.2833  disc=0.0389  prevalence [-1: 50.95%  Cancerous: 61.31%]
+    Feature     49  weight=-0.2749  disc=0.0099  prevalence [-1: 94.41%  Cancerous: 96.43%]
+
+  Dict Atom  118  |  non-zero WL features: 7245  |  sparsity: 0.000
+    Feature      9  weight=+0.5387  disc=0.0308  prevalence [-1: 63.62%  Cancerous: 71.13%]
+    Feature     19  weight=+0.4098  disc=0.0217  prevalence [-1: 81.26%  Cancerous: 86.01%]
+    Feature     84  weight=+0.2947  disc=0.0057  prevalence [-1: 41.67%  Cancerous: 39.88%]
+    Feature     25  weight=-0.2799  disc=0.0187  prevalence [-1: 41.16%  Cancerous: 35.12%]
+    Feature     73  weight=-0.2777  disc=0.0064  prevalence [-1: 65.99%  Cancerous: 67.56%]
+
+  Dict Atom  109  |  non-zero WL features: 7245  |  sparsity: 0.000
+    Feature     34  weight=+0.8825  disc=0.0143  prevalence [-1: 18.17%  Cancerous: 10.71%]
+    Feature    185  weight=+0.2660  disc=0.0015  prevalence [-1: 5.23%  Cancerous: 3.87%]
+    Feature     23  weight=-0.1510  disc=0.0196  prevalence [-1: 54.34%  Cancerous: 59.52%]
+    Feature    143  weight=-0.1344  disc=0.0025  prevalence [-1: 32.72%  Cancerous: 31.85%]
+    Feature    237  weight=+0.1141  disc=0.0009  prevalence [-1: 2.45%  Cancerous: 1.19%]
+
+  Dict Atom   43  |  non-zero WL features: 7245  |  sparsity: 0.000
+    Feature     35  weight=+0.4507  disc=0.0136  prevalence [-1: 5.92%  Cancerous: 14.29%]
+    Feature   1202  weight=+0.3837  disc=0.0001  prevalence [-1: 5.12%  Cancerous: 5.06%]
+    Feature     23  weight=+0.3427  disc=0.0196  prevalence [-1: 54.34%  Cancerous: 59.52%]
+    Feature     19  weight=+0.3144  disc=0.0217  prevalence [-1: 81.26%  Cancerous: 86.01%]
+    Feature    105  weight=+0.3096  disc=0.0045  prevalence [-1: 41.48%  Cancerous: 42.86%]
+
+── LEVEL 4: Similar Training Compounds ────────────────────────────────────
+  #1  idx= 1836  label=Cancerous         similarity=96.3%
+  #2  idx=15888  label=Cancerous         similarity=94.6%
+  #3  idx=10275  label=Cancerous         similarity=94.3%
+  #4  idx= 7141  label=Cancerous         similarity=94.3%
+  #5  idx=18128  label=-1                similarity=94.2%
+
+── LEVEL 6: WL Feature Statistics  (top atom: Dict Atom 28) ────────────────────────
+
+  WL Feature     49  token = 14cdfa9421205f7d751ae1fd8bbc1812
+    Discriminative score : 0.009877
+    Dominant class       : Cancerous
+    [-1              ]  present in 94.4% of compounds  (6734 docs)
+    [Cancerous       ]  present in 96.4% of compounds  (324 docs)
+
+  WL Feature     26  token = ae1f9635adc66c91411e8f77e79b3523
+    Discriminative score : 0.018421
+    Dominant class       : -1
+    [-1              ]  present in 60.8% of compounds  (4335 docs)
+    [Cancerous       ]  present in 56.0% of compounds  (188 docs)
+
+  WL Feature     73  token = 85afdd843f4605e6b48c7d2bd603589b
+    Discriminative score : 0.006417
+    Dominant class       : Cancerous
+    [-1              ]  present in 66.0% of compounds  (4707 docs)
+    [Cancerous       ]  present in 67.6% of compounds  (227 docs)
+
+  WL Feature    105  token = e252a26cae05e5009cec9ee7647b14e8
+    Discriminative score : 0.004461
+    Dominant class       : Cancerous
+    [-1              ]  present in 41.5% of compounds  (2959 docs)
+    [Cancerous       ]  present in 42.9% of compounds  (144 docs)
+
+  WL Feature     19  token = 0100b3e546d5ca2947d4cc352b72d088
+    Discriminative score : 0.021748
+    Dominant class       : Cancerous
+    [-1              ]  present in 81.3% of compounds  (5796 docs)
+    [Cancerous       ]  present in 86.0% of compounds  (289 docs)
+
+######################################################################
+# INTERPRETABILITY REPORT – TEST GRAPH 1  (true label: -1)
+######################################################################
+═════════════════════════════════════════════════════════════════
+  PREDICTION   : -1
+  CONFIDENCE   : 96.2%
+  ACTIVE ATOMS : 10
+═════════════════════════════════════════════════════════════════
+  CONTRIBUTION BREAKDOWN          [S = Supporting | O = Opposing]
+  Dictionary Atom            Bar                                   %
+─────────────────────────────────────────────────────────────────
+  Dict Atom  112 [S]         ████████░░░░░░░░░░░░░░░░░░░░░░   26.2%
+  Dict Atom  126 [O]         █████░░░░░░░░░░░░░░░░░░░░░░░░░   17.2%
+  Dict Atom   38 [O]         ████░░░░░░░░░░░░░░░░░░░░░░░░░░   13.2%
+  Dict Atom    3 [O]         ███░░░░░░░░░░░░░░░░░░░░░░░░░░░   10.8%
+  Dict Atom   65 [S]         ███░░░░░░░░░░░░░░░░░░░░░░░░░░░    9.0%
+  Others                     ███████░░░░░░░░░░░░░░░░░░░░░░░   23.6%
+═════════════════════════════════════════════════════════════════
+
+── LEVEL 1: Prediction Reasoning ─────────────────────────────────────────
+  Prediction : -1  (Confidence: 96.2%)
+  Atoms driving this prediction:
+    • Dict Atom  112   26.2%  [supporting]  activation=2.7548
+    • Dict Atom  126   17.2%  [opposing]  activation=2.1108
+    • Dict Atom   38   13.2%  [opposing]  activation=2.2733
+    • Dict Atom    3   10.8%  [opposing]  activation=7.5020
+    • Dict Atom   65    9.0%  [supporting]  activation=4.1953
+
+── LEVEL 2: Dictionary Atom Composition ───────────────────────────────────
+
+  Dict Atom  112  |  non-zero WL features: 7245  |  sparsity: 0.000
+    Feature     80  weight=+0.5101  disc=0.0062  prevalence [-1: 8.92%  Cancerous: 4.17%]
+    Feature     62  weight=+0.4376  disc=0.0071  prevalence [-1: 12.18%  Cancerous: 7.74%]
+    Feature     63  weight=+0.4376  disc=0.0071  prevalence [-1: 12.18%  Cancerous: 7.74%]
+    Feature    153  weight=+0.4048  disc=0.0022  prevalence [-1: 14.86%  Cancerous: 13.69%]
+    Feature    104  weight=+0.2672  disc=0.0045  prevalence [-1: 6.91%  Cancerous: 2.98%]
+
+  Dict Atom  126  |  non-zero WL features: 7245  |  sparsity: 0.000
+    Feature     57  weight=+0.4517  disc=0.0079  prevalence [-1: 77.37%  Cancerous: 79.17%]
+    Feature      1  weight=+0.4487  disc=0.0832  prevalence [-1: 54.03%  Cancerous: 74.7%]
+    Feature     26  weight=-0.3089  disc=0.0184  prevalence [-1: 60.77%  Cancerous: 55.95%]
+    Feature      5  weight=+0.2833  disc=0.0389  prevalence [-1: 50.95%  Cancerous: 61.31%]
+    Feature     49  weight=-0.2749  disc=0.0099  prevalence [-1: 94.41%  Cancerous: 96.43%]
+
+  Dict Atom   38  |  non-zero WL features: 7245  |  sparsity: 0.000
+    Feature    153  weight=+0.4769  disc=0.0022  prevalence [-1: 14.86%  Cancerous: 13.69%]
+    Feature     80  weight=-0.4766  disc=0.0062  prevalence [-1: 8.92%  Cancerous: 4.17%]
+    Feature    104  weight=-0.2552  disc=0.0045  prevalence [-1: 6.91%  Cancerous: 2.98%]
+    Feature     49  weight=+0.2423  disc=0.0099  prevalence [-1: 94.41%  Cancerous: 96.43%]
+    Feature     63  weight=+0.2420  disc=0.0071  prevalence [-1: 12.18%  Cancerous: 7.74%]
+
+  Dict Atom    3  |  non-zero WL features: 7245  |  sparsity: 0.000
+    Feature     49  weight=+0.8081  disc=0.0099  prevalence [-1: 94.41%  Cancerous: 96.43%]
+    Feature     26  weight=+0.3093  disc=0.0184  prevalence [-1: 60.77%  Cancerous: 55.95%]
+    Feature     19  weight=+0.2530  disc=0.0217  prevalence [-1: 81.26%  Cancerous: 86.01%]
+    Feature     73  weight=+0.2223  disc=0.0064  prevalence [-1: 65.99%  Cancerous: 67.56%]
+    Feature     57  weight=+0.1880  disc=0.0079  prevalence [-1: 77.37%  Cancerous: 79.17%]
+
+  Dict Atom   65  |  non-zero WL features: 7245  |  sparsity: 0.000
+    Feature     20  weight=+0.6278  disc=0.0216  prevalence [-1: 27.06%  Cancerous: 34.82%]
+    Feature    295  weight=+0.3425  disc=0.0006  prevalence [-1: 10.02%  Cancerous: 10.42%]
+    Feature     10  weight=+0.2770  disc=0.0294  prevalence [-1: 20.79%  Cancerous: 32.14%]
+    Feature     12  weight=+0.2757  disc=0.0288  prevalence [-1: 21.04%  Cancerous: 32.14%]
+    Feature     49  weight=+0.2747  disc=0.0099  prevalence [-1: 94.41%  Cancerous: 96.43%]
+
+── LEVEL 4: Similar Training Compounds ────────────────────────────────────
+  #1  idx=16502  label=-1                similarity=93.6%
+  #2  idx= 9533  label=-1                similarity=92.2%
+  #3  idx=15966  label=-1                similarity=91.5%
+  #4  idx=14056  label=-1                similarity=90.0%
+  #5  idx=20838  label=-1                similarity=89.8%
+
+── LEVEL 6: WL Feature Statistics  (top atom: Dict Atom 112) ────────────────────────
+
+  WL Feature     80  token = 371d3f8c365329649f65691c37ba0fe7
+    Discriminative score : 0.006180
+    Dominant class       : -1
+    [-1              ]  present in 8.9% of compounds  (636 docs)
+    [Cancerous       ]  present in 4.2% of compounds  (14 docs)
+
+  WL Feature     62  token = 34f2086393adc8edbf1eb8d7921e73e2
+    Discriminative score : 0.007058
+    Dominant class       : -1
+    [-1              ]  present in 12.2% of compounds  (869 docs)
+    [Cancerous       ]  present in 7.7% of compounds  (26 docs)
+
+  WL Feature     63  token = c5724719e3aea3a24eed58fd69b9e6af
+    Discriminative score : 0.007058
+    Dominant class       : -1
+    [-1              ]  present in 12.2% of compounds  (869 docs)
+    [Cancerous       ]  present in 7.7% of compounds  (26 docs)
+
+  WL Feature    153  token = 177a3f3e17756975572a209510000216
+    Discriminative score : 0.002211
+    Dominant class       : -1
+    [-1              ]  present in 14.9% of compounds  (1060 docs)
+    [Cancerous       ]  present in 13.7% of compounds  (46 docs)
+
+  WL Feature    104  token = c7933981fc295c62c472fc047e6c9bbf
+    Discriminative score : 0.004468
+    Dominant class       : -1
+    [-1              ]  present in 6.9% of compounds  (493 docs)
+    [Cancerous       ]  present in 3.0% of compounds  (10 docs)
+
+######################################################################
+# INTERPRETABILITY REPORT – TEST GRAPH 2  (true label: -1)
+######################################################################
+═════════════════════════════════════════════════════════════════
+  PREDICTION   : -1
+  CONFIDENCE   : 98.9%
+  ACTIVE ATOMS : 10
+═════════════════════════════════════════════════════════════════
+  CONTRIBUTION BREAKDOWN          [S = Supporting | O = Opposing]
+  Dictionary Atom            Bar                                   %
+─────────────────────────────────────────────────────────────────
+  Dict Atom  126 [S]         ████████░░░░░░░░░░░░░░░░░░░░░░   27.4%
+  Dict Atom    3 [O]         ███████░░░░░░░░░░░░░░░░░░░░░░░   23.8%
+  Dict Atom   92 [S]         ██████░░░░░░░░░░░░░░░░░░░░░░░░   19.1%
+  Dict Atom   56 [O]         ████░░░░░░░░░░░░░░░░░░░░░░░░░░   11.9%
+  Dict Atom  124 [S]         ███░░░░░░░░░░░░░░░░░░░░░░░░░░░    8.5%
+  Others                     ███░░░░░░░░░░░░░░░░░░░░░░░░░░░    9.2%
+═════════════════════════════════════════════════════════════════
+
+── LEVEL 1: Prediction Reasoning ─────────────────────────────────────────
+  Prediction : -1  (Confidence: 98.9%)
+  Atoms driving this prediction:
+    • Dict Atom  126   27.4%  [supporting]  activation=-9.7914
+    • Dict Atom    3   23.8%  [opposing]  activation=48.3422
+    • Dict Atom   92   19.1%  [supporting]  activation=7.8787
+    • Dict Atom   56   11.9%  [opposing]  activation=8.9469
+    • Dict Atom  124    8.5%  [supporting]  activation=8.7671
+
+── LEVEL 2: Dictionary Atom Composition ───────────────────────────────────
+
+  Dict Atom  126  |  non-zero WL features: 7245  |  sparsity: 0.000
+    Feature     57  weight=+0.4517  disc=0.0079  prevalence [-1: 77.37%  Cancerous: 79.17%]
+    Feature      1  weight=+0.4487  disc=0.0832  prevalence [-1: 54.03%  Cancerous: 74.7%]
+    Feature     26  weight=-0.3089  disc=0.0184  prevalence [-1: 60.77%  Cancerous: 55.95%]
+    Feature      5  weight=+0.2833  disc=0.0389  prevalence [-1: 50.95%  Cancerous: 61.31%]
+    Feature     49  weight=-0.2749  disc=0.0099  prevalence [-1: 94.41%  Cancerous: 96.43%]
+
+  Dict Atom    3  |  non-zero WL features: 7245  |  sparsity: 0.000
+    Feature     49  weight=+0.8081  disc=0.0099  prevalence [-1: 94.41%  Cancerous: 96.43%]
+    Feature     26  weight=+0.3093  disc=0.0184  prevalence [-1: 60.77%  Cancerous: 55.95%]
+    Feature     19  weight=+0.2530  disc=0.0217  prevalence [-1: 81.26%  Cancerous: 86.01%]
+    Feature     73  weight=+0.2223  disc=0.0064  prevalence [-1: 65.99%  Cancerous: 67.56%]
+    Feature     57  weight=+0.1880  disc=0.0079  prevalence [-1: 77.37%  Cancerous: 79.17%]
+
+  Dict Atom   92  |  non-zero WL features: 7245  |  sparsity: 0.000
+    Feature     56  weight=+0.7164  disc=0.0080  prevalence [-1: 12.86%  Cancerous: 16.96%]
+    Feature     49  weight=+0.3872  disc=0.0099  prevalence [-1: 94.41%  Cancerous: 96.43%]
+    Feature      9  weight=-0.2218  disc=0.0308  prevalence [-1: 63.62%  Cancerous: 71.13%]
+    Feature     11  weight=-0.2139  disc=0.0292  prevalence [-1: 18.65%  Cancerous: 30.36%]
+    Feature     19  weight=-0.1786  disc=0.0217  prevalence [-1: 81.26%  Cancerous: 86.01%]
+
+  Dict Atom   56  |  non-zero WL features: 7245  |  sparsity: 0.000
+    Feature     19  weight=+0.6223  disc=0.0217  prevalence [-1: 81.26%  Cancerous: 86.01%]
+    Feature     40  weight=+0.4140  disc=0.0112  prevalence [-1: 2.05%  Cancerous: 10.42%]
+    Feature     49  weight=+0.4119  disc=0.0099  prevalence [-1: 94.41%  Cancerous: 96.43%]
+    Feature     26  weight=+0.2814  disc=0.0184  prevalence [-1: 60.77%  Cancerous: 55.95%]
+    Feature    119  weight=+0.2746  disc=0.0035  prevalence [-1: 3.04%  Cancerous: 6.25%]
+
+  Dict Atom  124  |  non-zero WL features: 7245  |  sparsity: 0.000
+    Feature     73  weight=+0.5373  disc=0.0064  prevalence [-1: 65.99%  Cancerous: 67.56%]
+    Feature     26  weight=-0.4996  disc=0.0184  prevalence [-1: 60.77%  Cancerous: 55.95%]
+    Feature     19  weight=+0.4743  disc=0.0217  prevalence [-1: 81.26%  Cancerous: 86.01%]
+    Feature     57  weight=-0.2548  disc=0.0079  prevalence [-1: 77.37%  Cancerous: 79.17%]
+    Feature      1  weight=-0.2031  disc=0.0832  prevalence [-1: 54.03%  Cancerous: 74.7%]
+
+── LEVEL 4: Similar Training Compounds ────────────────────────────────────
+  #1  idx= 9138  label=-1                similarity=99.8%
+  #2  idx= 1546  label=-1                similarity=98.9%
+  #3  idx= 5435  label=-1                similarity=98.7%
+  #4  idx=17496  label=-1                similarity=98.0%
+  #5  idx=20026  label=-1                similarity=98.0%
+
+── LEVEL 6: WL Feature Statistics  (top atom: Dict Atom 126) ────────────────────────
+
+  WL Feature     57  token = 75a3c0fc5b9fe767680fe9123b7c0501
+    Discriminative score : 0.007935
+    Dominant class       : Cancerous
+    [-1              ]  present in 77.4% of compounds  (5519 docs)
+    [Cancerous       ]  present in 79.2% of compounds  (266 docs)
+
+  WL Feature      1  token = 906cec4ee868948aa03cee2550a89333
+    Discriminative score : 0.083194
+    Dominant class       : Cancerous
+    [-1              ]  present in 54.0% of compounds  (3854 docs)
+    [Cancerous       ]  present in 74.7% of compounds  (251 docs)
+
+  WL Feature     26  token = ae1f9635adc66c91411e8f77e79b3523
+    Discriminative score : 0.018421
+    Dominant class       : -1
+    [-1              ]  present in 60.8% of compounds  (4335 docs)
+    [Cancerous       ]  present in 56.0% of compounds  (188 docs)
+
+  WL Feature      5  token = 8db910500404fcf6f2f3bf4a86dcee9e
+    Discriminative score : 0.038861
+    Dominant class       : Cancerous
+    [-1              ]  present in 51.0% of compounds  (3634 docs)
+    [Cancerous       ]  present in 61.3% of compounds  (206 docs)
+
+  WL Feature     49  token = 14cdfa9421205f7d751ae1fd8bbc1812
+    Discriminative score : 0.009877
+    Dominant class       : Cancerous
+    [-1              ]  present in 94.4% of compounds  (6734 docs)
+    [Cancerous       ]  present in 96.4% of compounds  (324 docs)

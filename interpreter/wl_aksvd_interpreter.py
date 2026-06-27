@@ -119,9 +119,21 @@ class WLAKSVDInterpreter:
         -------
         wl_embedding  : np.ndarray  shape (1, n_vocab_features)
         sparse_code   : np.ndarray  shape (1, n_atoms)
+
+        Notes
+        -----
+        ApproximateKSVD.transform() squeezes single-sample output to 1D.
+        We always reshape to (1, n_atoms) so every caller receives a
+        consistent 2D array and sklearn's scaler/predict accept it without
+        manual reshaping at the call site.
         """
         wl_emb = self.wl.generate_inferencing_embeddings([graph])
         sparse_code = self.aksvd.infer(wl_emb)
+
+        # Guard against ApproximateKSVD squeezing single-sample output to 1D
+        if sparse_code.ndim == 1:
+            sparse_code = sparse_code.reshape(1, -1)
+
         return wl_emb, sparse_code
 
     def _atom_contributions(

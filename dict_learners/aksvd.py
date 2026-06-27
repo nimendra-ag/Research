@@ -4,7 +4,7 @@ from ksvd import ApproximateKSVD
 class AKSVD(DictLearner):
     def __init__(
             self,
-            dimensions: int = 16384,
+            dimensions: int = 128,
             max_iter: int = 10,
             tol: float = 1e-6,
             n_non_zero_coefs: int = 10,

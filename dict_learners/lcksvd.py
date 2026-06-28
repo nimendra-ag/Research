@@ -61,14 +61,14 @@ class LCKSVDLearner(DictLearner):
 
     def __init__(
         self,
-        K: int = 128,
+        K: int = 256,
         sparsity: int = 10,
         n_iter: int = 10,
-        alpha: float = 16.0,
-        beta: float = 4.0,
-        lambda1: float = 1e-4,
-        lambda2: float = 1e-4,
-        variant: str = "lcksvd2",
+        alpha: float = 32.0,
+        beta: float = 2.0,
+        lambda1: float = 1e-2,
+        lambda2: float = 1e-2,
+        variant: str = "lcksvd1",
     ):
         super().__init__(name="LCKSVD")
 

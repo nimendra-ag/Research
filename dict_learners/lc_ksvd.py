@@ -457,8 +457,8 @@ class LCKSVDConfig:
     K: int = 256
     sparsity: int = 30
     n_iter: int = 10
-    alpha: float = 16.0      # recommended in [1] for face datasets
-    beta: float = 4.0        # recommended in [1]
+    alpha: float = 16.0      
+    beta: float = 4.0        
     lambda1: float = 1e-4    # regularisation for W
     lambda2: float = 1e-4    # regularisation for A
     init_iter: int = 5
@@ -658,70 +658,3 @@ class LCKSVD:
         """
         X = self.encode(Y)
         return self.W_hat @ X
-
-
-# ---------------------------------------------------------------------------
-# Quick sanity-check / demonstration
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-
-    rng = np.random.default_rng(seed=42)
-
-    # --- Synthetic data: 3 classes, 50-d features, 20 atoms per class ------
-    num_classes = 3
-    n_features = 50
-    n_train_per_class = 40
-    n_test_per_class = 10
-    K = num_classes * 20   # 60 total atoms (20 per class)
-    sparsity = 6
-
-    # Generate class-specific signal clusters
-    centres = rng.standard_normal((num_classes, n_features))
-    Y_train_list, Y_test_list, lbl_train_list, lbl_test_list = [], [], [], []
-    for c in range(num_classes):
-        Y_train_list.append(
-            centres[c, :, None] + 0.1 * rng.standard_normal((n_features, n_train_per_class))
-        )
-        Y_test_list.append(
-            centres[c, :, None] + 0.1 * rng.standard_normal((n_features, n_test_per_class))
-        )
-        lbl_train_list.extend([c] * n_train_per_class)
-        lbl_test_list.extend([c] * n_test_per_class)
-
-    Y_train = np.hstack(Y_train_list)                        # (50, 120)
-    Y_test  = np.hstack(Y_test_list)                         # (50,  30)
-    labels_train = np.array(lbl_train_list)                  # (120,)
-    labels_test  = np.array(lbl_test_list)                   # ( 30,)
-
-    # --- Train LC-KSVD2 ---------------------------------------------------
-    cfg = LCKSVDConfig(
-        K=K,
-        sparsity=sparsity,
-        n_iter=10,
-        alpha=16.0,
-        beta=4.0,
-        variant="lcksvd2",
-    )
-    model = LCKSVD(cfg)
-    model.fit(Y_train, labels_train, num_classes=num_classes)
-
-    # --- Evaluate ---------------------------------------------------------
-    preds = model.predict(Y_test)
-    accuracy = float(np.mean(preds == labels_test))
-    print(f"\nLC-KSVD2 test accuracy on synthetic data: {accuracy * 100:.1f}%")
-
-    # --- Also try LC-KSVD1 ------------------------------------------------
-    cfg1 = LCKSVDConfig(
-        K=K,
-        sparsity=sparsity,
-        n_iter=10,
-        alpha=16.0,
-        variant="lcksvd1",
-    )
-    model1 = LCKSVD(cfg1)
-    model1.fit(Y_train, labels_train, num_classes=num_classes)
-    preds1 = model1.predict(Y_test)
-    accuracy1 = float(np.mean(preds1 == labels_test))
-    print(f"LC-KSVD1 test accuracy on synthetic data: {accuracy1 * 100:.1f}%")

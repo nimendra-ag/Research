@@ -86,7 +86,7 @@ class WL_LCKSVD:
             """
 
         end = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"results_{start}_{end}.txt"
+        filename = f"results_wllcksvd_{start}_{end}.txt"
 
         with open(f"results/{filename}", "w", encoding="utf-8") as f:
             f.write(final_output)

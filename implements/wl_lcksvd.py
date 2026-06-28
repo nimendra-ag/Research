@@ -5,6 +5,7 @@ from utils.evaluator import Evaluator
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MaxAbsScaler
 from datetime import datetime
+from utils.lcksvd_evaluator import LCKSVDEvaluator
 
 data_loader = GraphDataLoader()
 
@@ -76,13 +77,33 @@ class WL_LCKSVD:
 
         results_random_forest = evaluator.predict_random_forest()
         print(results_random_forest)
+        # ---- Step 7: LC-KSVD internal classifier evaluation -------------
+        # Evaluate W_hat — the linear classifier learned jointly with D and A.
+        # Passes raw WL test embeddings (not scaled sparse codes) because
+        # LCKSVDEvaluator handles its own OMP encoding internally via
+        # lcksvd_model.encode(), working directly in the learned D_hat space.
+        lcksvd_eval = LCKSVDEvaluator(lcksvd)
+        lcksvd_metrics = lcksvd_eval.evaluate(
+            graph_embeddings_test=graph_embeddings_ml_test,
+            y_test=y_test,
+            positive_label=1,     # minority class index for the NCI dataset
+        )
+        lcksvd_eval.print_results(lcksvd_metrics)
 
-        # ---- Step 7: Save results ----------------------------------------
+        # ---- Step 8: Save results ----------------------------------------
         final_output = f"""
             {results_logistic_reg}
             {results_gradient_boosting}
             {results_svm}
             {results_random_forest}
+
+            --- LC-KSVD Internal Classifier ---
+                    Precision : {lcksvd_metrics['precision']:.4f}
+                    Recall    : {lcksvd_metrics['recall']:.4f}
+                    F1-Score  : {lcksvd_metrics['f1']:.4f}
+                    ROC-AUC   : {lcksvd_metrics['roc_auc']:.4f}
+                    PR-AUC    : {lcksvd_metrics['pr_auc']:.4f}
+            {lcksvd_metrics['classification_report']}
             """
 
         end = datetime.now().strftime("%Y%m%d_%H%M%S")

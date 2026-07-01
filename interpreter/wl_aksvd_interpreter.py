@@ -25,7 +25,7 @@ No approximation is needed; the explanation IS the computation.
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -437,6 +437,238 @@ class WLAKSVDInterpreter:
         }
 
     # ─────────────────────────────────────────────────────────────────────────
+    # Level 3 – Node-level attribution (WL token → graph node tracing)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _build_token_node_map(self, graph) -> Dict[str, List]:
+        """
+        Re-run WL hashing on a single graph and return {wl_token: [node_ids]}.
+
+        The pipeline's create_wl_hash() calls get_graph_features(), which
+        flattens all (node × iteration) tokens into one list and loses the
+        node correspondence.  Here we read extracted_features *before* that
+        flattening step:
+
+            extracted_features = {
+                iteration_0: [token_node_0, token_node_1, ...],
+                iteration_1: [token_node_0, token_node_1, ...],
+                ...
+            }
+
+        We call WeisfeilerLehmanHashing with the exact same parameters as the
+        pipeline, so the token strings are byte-for-byte identical to those in
+        the learned vocabulary.
+        """
+        from karateclub.utils.treefeatures import WeisfeilerLehmanHashing
+
+        g = self.wl._check_graph(graph)
+        wl_hash = WeisfeilerLehmanHashing(
+            g,
+            self.wl.wl_iterations,
+            self.wl.attributed,
+            self.wl.erase_base_features,
+        )
+
+        nodes = list(g.nodes())
+        token_node_map: Dict[str, List] = defaultdict(list)
+
+        # extracted_features: {iter_idx: [token_for_node_0, token_for_node_1, ...]}
+        for node_features in wl_hash.extracted_features.values():
+            for node_pos, token in enumerate(node_features):
+                token_str = str(token)
+                node_id = nodes[node_pos]
+                # A node may produce the same token at different iterations;
+                # keep it listed only once per token.
+                if node_id not in token_node_map[token_str]:
+                    token_node_map[token_str].append(node_id)
+
+        return dict(token_node_map)
+
+    def get_node_importance(
+        self,
+        graph,
+        top_k_atoms: int = 5,
+    ) -> Dict:
+        """
+        Trace prediction contributions back to individual graph nodes.
+
+        Attribution chain (no approximations)
+        --------------------------------------
+        prediction
+          └─ Σ_k  atom_contribution(k)            ← sparse_code[k] × coef[k]
+               └─ Σ_{t ∈ vocab ∩ tokens_at_v}  dictionary[k][t]
+                                                   ← atom k's weight for token t
+
+        For every node v in the graph:
+
+            node_importance(v) = Σ_k { atom_contribution(k)
+                                        × Σ_t { dictionary[k][t]
+                                                 ∀ vocab token t that v generated } }
+
+        This chains each term directly from the trained model — no GNNExplainer,
+        no masking, no post-hoc approximation.
+
+        Returns
+        -------
+        dict
+            prediction          : str
+            confidence          : float | None
+            node_importance     : Dict[node_id, float]  – signed scores
+            node_importance_pct : Dict[node_id, float]  – % of total |importance|
+            sorted_nodes        : List[(node_id, float)] – ranked by |score|
+            node_sources        : Dict[node_id, List[dict]] – full traceability
+        """
+        _, sparse_code = self._embed_graph(graph)
+        scaled = self.scaler.transform(sparse_code)
+        explanation = self._build_explanation(sparse_code, scaled, top_k_atoms)
+
+        token_node_map = self._build_token_node_map(graph)
+        vocab_index = {w: i for i, w in enumerate(self.vocab_words)}
+
+        node_importance: Dict = defaultdict(float)
+        node_sources: Dict = defaultdict(list)
+
+        for atom_info in explanation["top_atoms"]:
+            k = atom_info["atom_idx"]
+            atom_contrib = atom_info["raw_contribution"]
+            atom_weights = self.dictionary[k]   # shape (n_vocab,)
+
+            for token_str, node_ids in token_node_map.items():
+                if token_str not in vocab_index:
+                    continue   # token not in learned vocabulary; skip
+
+                feat_idx = vocab_index[token_str]
+                w = float(atom_weights[feat_idx])
+                if w == 0.0:
+                    continue   # this atom does not use this WL feature; skip
+
+                path_importance = atom_contrib * w
+
+                for node_id in node_ids:
+                    node_importance[node_id] += path_importance
+                    node_sources[node_id].append({
+                        "atom_idx": k,
+                        "token": token_str,
+                        "atom_contribution": round(atom_contrib, 6),
+                        "atom_weight": round(w, 6),
+                        "path_importance": round(path_importance, 6),
+                    })
+
+        sorted_nodes = sorted(
+            node_importance.items(),
+            key=lambda x: abs(x[1]),
+            reverse=True,
+        )
+        total_abs = sum(abs(s) for _, s in sorted_nodes) or 1.0
+
+        return {
+            "prediction": explanation["prediction_label"],
+            "confidence": explanation["confidence"],
+            "node_importance": dict(node_importance),
+            "node_importance_pct": {
+                nid: round(abs(score) / total_abs * 100, 2)
+                for nid, score in sorted_nodes
+            },
+            "sorted_nodes": sorted_nodes,
+            "node_sources": dict(node_sources),
+        }
+
+    def node_highlight_report(
+        self,
+        graph,
+        top_k_atoms: int = 5,
+        top_n_nodes: Optional[int] = None,
+    ) -> str:
+        """
+        Text report listing which nodes to highlight and why.
+
+        For each node the report shows:
+          • Importance score as a % of total attribution
+          • Direction: [+] supports the predicted class, [-] opposes it
+          • The node's graph attributes (atom type / feature vector)
+          • Traceability: which dictionary atoms drove the importance score
+
+        Parameters
+        ----------
+        graph        : single networkx graph to explain
+        top_k_atoms  : number of dictionary atoms to trace through
+        top_n_nodes  : cap the list to the N most important nodes
+                       (default: all nodes that received any importance)
+        """
+        result = self.get_node_importance(graph, top_k_atoms=top_k_atoms)
+        g = self.wl._check_graph(graph)
+
+        sorted_nodes = result["sorted_nodes"]
+        if top_n_nodes is not None:
+            sorted_nodes = sorted_nodes[:top_n_nodes]
+
+        total_abs = (
+            sum(abs(s) for _, s in result["sorted_nodes"]) or 1.0
+        )
+        sep = "═" * 68
+
+        lines = [
+            sep,
+            f"  PREDICTION   : {result['prediction']}",
+            (
+                f"  CONFIDENCE   : {result['confidence'] * 100:.1f}%"
+                if result["confidence"] is not None
+                else "  CONFIDENCE   : N/A"
+            ),
+            sep,
+            "  NODE HIGHLIGHTING     [+] promotes prediction   [-] opposes it",
+            f"  {'Node':<8} {'Feature / Attrs':<22} {'Importance':<30} {'%':>6}  Dir",
+            "─" * 68,
+        ]
+
+        for node_id, score in sorted_nodes:
+            attrs = dict(g.nodes[node_id])
+            # Probe common molecular-graph attribute keys
+            feat_val = attrs.get(
+                "feature",
+                attrs.get("label", attrs.get("x", list(attrs.values())[:1] or "?")),
+            )
+            feat_str = str(feat_val)
+            if len(feat_str) > 20:
+                feat_str = feat_str[:17] + "..."
+
+            direction = "[+]" if score >= 0 else "[-]"
+            pct = abs(score) / total_abs * 100
+            bar = self._ascii_bar(pct, 28)
+            lines.append(
+                f"  {str(node_id):<8} {feat_str:<22} {bar}  {pct:>5.1f}%  {direction}"
+            )
+
+        # ── Traceability block ────────────────────────────────────────────────
+        lines += [
+            "─" * 68,
+            "  TRACEABILITY: top nodes → source dictionary atoms",
+            "─" * 68,
+        ]
+        for node_id, score in sorted_nodes[:min(5, len(sorted_nodes))]:
+            sources = result["node_sources"].get(node_id, [])
+
+            # Aggregate path_importance per atom
+            atom_totals: Dict[int, float] = defaultdict(float)
+            for rec in sources:
+                atom_totals[rec["atom_idx"]] += rec["path_importance"]
+
+            top_atoms = sorted(
+                atom_totals.items(), key=lambda x: abs(x[1]), reverse=True
+            )[:3]
+
+            direction = "[+]" if score >= 0 else "[-]"
+            atom_str = "  ".join(
+                f"Dict Atom {k} ({v:+.4f})" for k, v in top_atoms
+            )
+            lines.append(
+                f"  Node {node_id} {direction}  ←  {atom_str or 'no source'}"
+            )
+
+        lines.append(sep)
+        return "\n".join(lines)
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Full Report (combines all levels)
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -561,5 +793,12 @@ class WLAKSVDInterpreter:
                         f"  present in {stats['prevalence_pct']:.1f}%"
                         f" of compounds  ({stats['doc_frequency']} docs)"
                     )
+
+        # ── Level 3: Node Highlighting ────────────────────────────────────────
+        lines += [
+            "",
+            "── LEVEL 3: Node Highlighting ──────────────────────────────────────────",
+        ]
+        lines.append(self.node_highlight_report(graph, top_k_atoms=top_k_atoms))
 
         return "\n".join(lines)

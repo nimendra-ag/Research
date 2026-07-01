@@ -12,12 +12,12 @@ fit(), infer(), and the rest of the pipeline always receive plain
 numpy arrays from this class, so nothing else in the pipeline changes.
 
 To switch back to CPU-only: change the import to:
-    from lc_ksvd import LCKSVD, LCKSVDConfig
+    from dict_learners.lc_ksvd import LCKSVD, LCKSVDConfig
 """
 
 import numpy as np
 from dict_learners.dict_learner import DictLearner
-from lc_ksvd_gpu import LCKSVD, LCKSVDConfig   # PyTorch GPU version   # GPU-accelerated version
+from dict_learners.lc_ksvd_gpu import LCKSVD, LCKSVDConfig   # PyTorch GPU version   # GPU-accelerated version
 
 
 class LCKSVDLearner(DictLearner):
@@ -40,7 +40,7 @@ class LCKSVDLearner(DictLearner):
 
     def __init__(
         self,
-        K: int = 8000,
+        K: int = 128,
         sparsity: int = 10,
         n_iter: int = 10,
         alpha: float = 16.0,

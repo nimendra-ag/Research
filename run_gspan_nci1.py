@@ -10,7 +10,7 @@ import os
 import numpy as np
 import networkx as nx
 from rdkit import Chem
-from gspan import GSpan
+from graph_encoders.gspan import GSpan
 
 # ===================================================================
 # 1. Load NCI dataset (your code, unchanged)

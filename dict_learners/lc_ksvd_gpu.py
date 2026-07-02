@@ -124,6 +124,38 @@ def _to_numpy(t: torch.Tensor) -> np.ndarray:
 # Orthogonal Matching Pursuit (OMP)
 # ---------------------------------------------------------------------------
 
+def _lstsq_gpu(A: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """
+    Solve the least-squares problem  argmin_x ||b - Ax||_2  on any device.
+
+    torch.linalg.lstsq only supports driver='gels' on CUDA, which requires
+    full column rank — unsafe for general use. Instead, we solve via the
+    normal equations:
+
+        x = (A^T A + eps*I)^{-1} A^T b
+
+    The small Tikhonov term (eps=1e-10) keeps the Gram matrix non-singular
+    when columns are nearly linearly dependent, which can happen in OMP when
+    the support set is large. This matches the numerical behaviour of the
+    CPU lstsq used in the original implementation and works identically on
+    both CPU and CUDA tensors.
+
+    Parameters
+    ----------
+    A : (n, s) tensor  — submatrix of dictionary atoms at current support
+    b : (n,)   tensor  — signal or residual
+
+    Returns
+    -------
+    x : (s,) tensor  — least-squares solution
+    """
+    eps = 1e-10
+    gram = A.T @ A + eps * torch.eye(A.shape[1], dtype=A.dtype, device=A.device)
+    rhs  = A.T @ b
+    # torch.linalg.solve is supported on CUDA and is more stable than inv()
+    return torch.linalg.solve(gram, rhs)
+
+
 def omp(
     y: torch.Tensor,
     D: torch.Tensor,
@@ -136,6 +168,10 @@ def omp(
     Solves:  argmin_x  ||y - Dx||_2^2    s.t.  ||x||_0 <= sparsity
 
     All operations run on `device` (GPU or CPU).
+
+    Least-squares sub-problem solved via normal equations (_lstsq_gpu)
+    instead of torch.linalg.lstsq because lstsq only supports driver='gels'
+    on CUDA, which is not safe for all support set sizes.
 
     Parameters
     ----------
@@ -166,14 +202,10 @@ def omp(
         best = int(correlations.argmax().item())
         support.append(best)
 
-        # Least-squares projection onto current support
+        # Least-squares projection onto current support via normal equations
         support_t = torch.tensor(support, dtype=torch.long, device=device)
         D_s = D[:, support_t]                             # (n, |support|)
-
-        # torch.linalg.lstsq returns a named tuple; .solution is the result.
-        # driver='gelsd' is numerically stable and works on both CPU and GPU.
-        result = torch.linalg.lstsq(D_s, y.unsqueeze(1), driver="gelsd")
-        x_s = result.solution.squeeze(1)                  # (|support|,)
+        x_s = _lstsq_gpu(D_s, y)                         # (|support|,)
 
         # Update residual
         residual = y - D_s @ x_s
@@ -485,7 +517,7 @@ class LCKSVDConfig:
     use_gpu  : if True, run on CUDA GPU via PyTorch.
                Falls back to CPU automatically if CUDA is unavailable.
     """
-    K: int          = 256
+    K: int          = 128
     sparsity: int   = 30
     n_iter: int     = 10
     alpha: float    = 16.0

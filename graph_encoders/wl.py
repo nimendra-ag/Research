@@ -94,8 +94,12 @@ class WL(GraphEncoder):
 
         # selection
         scores = np.array([x[1] for x in scored_vocab])
-
-        threshold = scores.mean() - scores.std()
+        print(f"Total Features {len(scores)}")
+        l_scores = len(scores)
+        decile_ = 0.50
+        temp = int(l_scores * decile_)
+        threshold = scores[temp]
+        # threshold = scores.mean() - scores.std()
         trimmed_vocab = [item for item in scored_vocab if item[1] >= threshold]
 
         # fallback if too few selected

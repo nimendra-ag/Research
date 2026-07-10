@@ -1,4 +1,4 @@
-from dict_learners.aksvd import AKSVD
+from dict_learners.frozen_ksvd_learner import FrozenKSVDLearner
 from graph_encoders.wl import WL
 from utils.graph_data import GraphDataLoader
 from utils.evaluator import Evaluator
@@ -23,9 +23,9 @@ G_vocab_train, G_ML_train, y_vocab_train, y_ML_train = train_test_split(
 )
 
 
-class WL_AKSVD:
+class WL_FrozenKSVD:
     def __init__(self, data_loader):
-        self.implementation = "WL_AKSVD"
+        self.implementation = "WL_FrozenKSVD"
         self.data_loader = data_loader
 
     def run(self, G_vocab_train, y_vocab_train, G_ML_train, G_test, y_ML_train, y_test):
@@ -35,15 +35,17 @@ class WL_AKSVD:
         wl = WL()
         graph_embeddings = wl.generate_training_embeddings(G_vocab_train, y_vocab_train)
 
-        aksvd = AKSVD().fit(training_graph_embeddings=graph_embeddings)
+        frozen_ksvd_learner = FrozenKSVDLearner().fit(
+            training_graph_embeddings=graph_embeddings
+        )
 
-        #generating sparse vectors for graphs for training the ml models
+        # generating sparse vectors for graphs for training the ml models
         graph_embeddings_ml_train = wl.generate_inferencing_embeddings(G_ML_train)
-        X_ML_train = aksvd.infer(graph_embeddings_ml_train)
+        X_ML_train = frozen_ksvd_learner.infer(graph_embeddings_ml_train)
 
-        #generating sparse vectors for graphs for classification(inferencing the ml model)
+        # generating sparse vectors for graphs for classification (inferencing the ml model)
         graph_embeddings_ml_test = wl.generate_inferencing_embeddings(G_test)
-        X_ML_test = aksvd.infer(graph_embeddings_ml_test)
+        X_ML_test = frozen_ksvd_learner.infer(graph_embeddings_ml_test)
 
         scaler = MaxAbsScaler()
         X_ML_train_scaled = scaler.fit_transform(X_ML_train)
@@ -63,8 +65,6 @@ class WL_AKSVD:
         results_random_forest = evaluator.predict_random_forest()
         print(results_random_forest)
 
-
-
         final_output = f"""
             {results_logistic_reg}
             {results_gradient_boosting}
@@ -74,12 +74,13 @@ class WL_AKSVD:
 
         end = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        filename = f"results_{start}_{end}.txt"
+        filename = f"results_wl_frozen_ksvd_{frozen_ksvd_learner.dimensions}_{start}_{end}.txt"
 
         with open(f"results/{filename}", "w", encoding="utf-8") as f:
             f.write(final_output)
 
         print(f"Saved results to {filename}")
-        
-wl_ksvd = WL_AKSVD(data_loader)
-wl_ksvd.run(G_vocab_train, y_vocab_train, G_ML_train, G_test, y_ML_train, y_test)
+
+
+wl_frozen_ksvd = WL_FrozenKSVD(data_loader)
+wl_frozen_ksvd.run(G_vocab_train, y_vocab_train, G_ML_train, G_test, y_ML_train, y_test)

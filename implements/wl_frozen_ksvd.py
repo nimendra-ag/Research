@@ -35,8 +35,13 @@ class WL_FrozenKSVD:
         wl = WL()
         graph_embeddings = wl.generate_training_embeddings(G_vocab_train, y_vocab_train)
 
+        # Labels are passed to the dictionary learner so it can split
+        # data by class and build the dictionary incrementally:
+        #   1. Base dictionary from majority class (label -1)
+        #   2. Residual atoms for minority class on top of frozen base
         frozen_ksvd_learner = FrozenKSVDLearner().fit(
-            training_graph_embeddings=graph_embeddings
+            training_graph_embeddings=graph_embeddings,
+            labels=y_vocab_train,
         )
 
         # generating sparse vectors for graphs for training the ml models
@@ -74,7 +79,7 @@ class WL_FrozenKSVD:
 
         end = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        filename = f"results_wl_frozen_ksvd_{frozen_ksvd_learner.dimensions}_{start}_{end}.txt"
+        filename = f"results_wlfrozenksvd{frozen_ksvd_learner.}_{start}_{end}.txt"
 
         with open(f"results/{filename}", "w", encoding="utf-8") as f:
             f.write(final_output)

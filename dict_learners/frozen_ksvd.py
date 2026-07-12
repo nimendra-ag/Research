@@ -53,7 +53,7 @@ class FrozenKSVD(object):
         if n_frozen >= n_components:
             raise ValueError("n_frozen must be strictly less than n_components.")
 
-        self.components_ = 128
+        self.components_ = None
         self.max_iter = max_iter
         self.tol = tol
         self.n_components = n_components
@@ -99,7 +99,10 @@ class FrozenKSVD(object):
                     )
                 D_frozen = frozen_atoms.copy()
             else:
-                D_frozen = np.random.randn(self.n_frozen, n_features)
+                raise ValueError(
+                    "frozen_atoms must be provided when n_frozen > 0. "
+                    "Freezing random atoms has no practical value."
+                )
 
             D_frozen /= np.linalg.norm(D_frozen, axis=1)[:, np.newaxis]
             D = np.vstack([D_frozen, D_learnable])

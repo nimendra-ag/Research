@@ -39,8 +39,8 @@ class WL_FrozenKSVD:
         # data by class and build the dictionary incrementally:
         #   1. Base dictionary from majority class (label -1)
         #   2. Residual atoms for minority class on top of frozen base
-        frozen_ksvd_learner = FrozenKSVDLearner(n_components_base=3000,
-            n_components_residual=548).fit(
+        frozen_ksvd_learner = FrozenKSVDLearner(n_components_base=450,
+            n_components_residual=62).fit(
             training_graph_embeddings=graph_embeddings,
             labels=y_vocab_train)
 
@@ -78,8 +78,11 @@ class WL_FrozenKSVD:
             """
 
         end = datetime.now().strftime("%Y%m%d_%H%M%S")
+        start_dt = datetime.strptime(start, "%Y%m%d_%H%M%S")
+        end_dt = datetime.strptime(end, "%Y%m%d_%H%M%S")
 
-        filename = f"results_wlfrozenksvd{frozen_ksvd_learner.n_components_base}_{frozen_ksvd_learner.n_components_residual}_{start}_{end}.txt"
+        duration_hours = (end_dt - start_dt).total_seconds() / 3600
+        filename = f"results_wlfrozenksvd{frozen_ksvd_learner.n_components_base}_{frozen_ksvd_learner.n_components_residual}_{start}_{end}_{duration_hours:.2f}.txt"
 
         with open(f"results/{filename}", "w", encoding="utf-8") as f:
             f.write(final_output)

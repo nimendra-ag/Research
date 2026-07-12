@@ -79,7 +79,7 @@ class WL_FrozenKSVD:
 
         end = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        filename = f"results_wlfrozenksvd{frozen_ksvd_learner.}_{start}_{end}.txt"
+        filename = f"results_wlfrozenksvd{frozen_ksvd_learner.n_components_base}_{frozen_ksvd_learner.n_components_residual}_{start}_{end}.txt"
 
         with open(f"results/{filename}", "w", encoding="utf-8") as f:
             f.write(final_output)

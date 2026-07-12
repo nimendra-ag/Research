@@ -1,6 +1,6 @@
 """
-LC-KSVD: Label Consistent K-SVD  —  GPU-accelerated (PyTorch)
-==============================================================
+LC-KSVD: Label Consistent K-SVD  —  PyTorch GPU variant
+=========================================================
 Implementation based on:
   [1] Jiang, Z., Lin, Z., Davis, L.S. (2011).
       "Learning a Discriminative Dictionary for Sparse Coding via Label Consistent K-SVD."
@@ -10,55 +10,62 @@ Implementation based on:
       "Label Consistent K-SVD: Learning a Discriminative Dictionary for Recognition."
       IEEE TPAMI, 35(11), pp. 2651-2664.
 
-GPU acceleration strategy
---------------------------
-This file is a PyTorch-based GPU-accelerated version of lc_ksvd.py.
+Relation to lc_ksvd.py (CPU version)
+--------------------------------------
+This file is the GPU-accelerated counterpart of lc_ksvd.py.
+ZERO algorithmic logic has been changed. Every mathematical step,
+every loop structure, every equation is identical.
 
-ALGORITHM LOGIC IS IDENTICAL — nothing in the mathematical steps has
-changed. Only the array backend changes:
+The only changes are:
+  1. Array backend: numpy arrays → torch.Tensor on CUDA device.
+  2. Two CPU-bound operations (OMP, SVD init) temporarily move data
+     to CPU numpy, call the CPU library, then move the result back
+     to GPU. See "What stays on CPU" below.
+  3. Transfer helpers (_to_device, _to_cpu) added at module level.
+  4. LCKSVDConfig gains a use_gpu: bool field.
+  5. LCKSVD.__init__ resolves a torch.device from use_gpu.
 
-  CPU version (lc_ksvd.py)     → numpy arrays
-  GPU version (this file)       → torch.Tensor on CUDA device
+What runs on GPU (CUDA)
+------------------------
+  aksvd_update  — all matmuls (D.T@D, D.T@Y, D@X, R@g, R.T@d),
+                  norm, boolean masking, column updates
+  ridge_regression — matmul chain + torch.linalg.inv
+  extract_and_renorm — slicing, division, norm
+  fit steps 4, 6, 8, 9 — matmuls for gram/Xy/stacking/normalisation
 
-Why PyTorch instead of CuPy
------------------------------
-PyTorch is likely already installed in your environment (it is a standard
-deep learning dependency). CuPy requires a separate installation that must
-match your exact CUDA version. PyTorch manages its own CUDA runtime and
-is more robust across CUDA versions.
+What stays on CPU (cannot run on CUDA)
+----------------------------------------
+  orthogonal_mp_gram (sklearn) — no CUDA backend exists.
+      Strategy: pull gram (K,K) and Xy (K,N) to CPU numpy,
+      call orthogonal_mp_gram, push result (K,N) back to GPU.
+      gram and Xy are small relative to Y and D, so the transfer
+      cost is low. The heavy matmuls that produce gram and Xy
+      still run on GPU.
 
-Key PyTorch vs NumPy / CuPy differences handled here
-------------------------------------------------------
-1.  No module-swap pattern (xp=np / xp=cp).
-    PyTorch uses torch.* functions + a device object.
-    Every tensor is created on or moved to `self.device`.
+  scipy.sparse.linalg.svds (init_dictionary_svd) — CPU only.
+      Strategy: pull Y_c (n, N_c) to CPU for each class subset,
+      call svds, push D_c result back to GPU.
+      This happens once at initialisation, not per iteration.
 
-2.  torch.linalg.lstsq returns a named tuple (.solution),
-    not a 4-tuple like numpy. Handled in omp().
+  build_label_matrix, build_discriminative_codes, init_atom_labels
+      — pure label index arithmetic, negligible cost, stay CPU.
 
-3.  Tensor indexing with a list must use torch.tensor(support, device=...).
-    Plain Python lists cannot index a CUDA tensor directly.
+Transfer boundary
+------------------
+  fit(Y, labels)   : numpy in → GPU tensor at entry
+                     GPU tensors → numpy stored in self.D_hat/A_hat/W_hat
+  encode(Y)        : numpy in → GPU tensor → numpy out
+  predict/predict_scores : call encode() then CPU matmul (W_hat small)
 
-4.  torch.nonzero(x, as_tuple=True) returns a tuple of 1D tensors.
-
-5.  .item() converts a 0-d tensor to a Python scalar.
-
-6.  All results are returned as CPU numpy arrays at the transfer boundary
-    (fit / encode), so the rest of the pipeline is completely unaffected.
-
-Transfer boundaries
---------------------
-  fit(Y, labels)  : numpy in → GPU tensors during compute → numpy stored
-  encode(Y)       : numpy in → GPU tensor → numpy out
-  predict / predict_scores: call encode() then CPU matmul (W_hat is small)
+The pipeline adapter (dict_learners/lcksvd.py), Evaluator, and
+LCKSVDEvaluator need NO changes — they always see CPU numpy arrays.
 
 Requirements
 ------------
-  pip install torch          (CPU-only build)
   pip install torch --index-url https://download.pytorch.org/whl/cu118
-                             (CUDA 11.8 build — adjust version as needed)
+  (adjust cu118 to match your CUDA version)
 
-  Verify GPU:  python -c "import torch; print(torch.cuda.is_available())"
+  Verify: python -c "import torch; print(torch.cuda.is_available())"
 """
 
 from __future__ import annotations
@@ -68,271 +75,151 @@ from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
+import scipy.sparse.linalg
 import torch
+from sklearn.linear_model import orthogonal_mp_gram
 
 logger = logging.getLogger(__name__)
 
-# Global device — resolved once at import time
 _CUDA_AVAILABLE = torch.cuda.is_available()
-
-
-def _resolve_device(use_gpu: bool) -> torch.device:
-    """
-    Resolve the torch.device to use.
-
-    Parameters
-    ----------
-    use_gpu : bool — whether GPU was requested
-
-    Returns
-    -------
-    torch.device — cuda:0 if GPU is available and requested, else cpu
-    """
-    if use_gpu and _CUDA_AVAILABLE:
-        return torch.device("cuda:0")
-    if use_gpu and not _CUDA_AVAILABLE:
-        logger.warning(
-            "GPU requested but CUDA is not available. Falling back to CPU."
-        )
-    return torch.device("cpu")
 
 
 # ---------------------------------------------------------------------------
 # Transfer helpers
 # ---------------------------------------------------------------------------
 
+def _resolve_device(use_gpu: bool) -> torch.device:
+    """Return cuda:0 if GPU requested and available, else cpu."""
+    if use_gpu and _CUDA_AVAILABLE:
+        return torch.device("cuda:0")
+    if use_gpu and not _CUDA_AVAILABLE:
+        logger.warning("GPU requested but CUDA unavailable — falling back to CPU.")
+    return torch.device("cpu")
+
+
 def _to_device(arr: np.ndarray, device: torch.device) -> torch.Tensor:
-    """
-    Convert a numpy array to a float64 torch.Tensor on the target device.
-
-    float64 is used throughout to match numpy's default precision and
-    avoid numerical differences relative to the CPU reference implementation.
-    """
-    return torch.from_numpy(arr.astype(np.float64)).to(device)
+    """Convert a numpy array to a float64 torch.Tensor on device."""
+    return torch.from_numpy(np.asarray(arr, dtype=np.float64)).to(device)
 
 
-def _to_numpy(t: torch.Tensor) -> np.ndarray:
-    """
-    Move a torch.Tensor to CPU and convert to numpy array.
-
-    Works whether the tensor is on CPU or GPU.
-    """
+def _to_cpu(t: torch.Tensor) -> np.ndarray:
+    """Move a tensor to CPU and return as numpy array."""
     return t.detach().cpu().numpy()
 
 
 # ---------------------------------------------------------------------------
-# Orthogonal Matching Pursuit (OMP)
+# Approximate K-SVD dictionary update
 # ---------------------------------------------------------------------------
 
-def _lstsq_gpu(A: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """
-    Solve the least-squares problem  argmin_x ||b - Ax||_2  on any device.
-
-    torch.linalg.lstsq only supports driver='gels' on CUDA, which requires
-    full column rank — unsafe for general use. Instead, we solve via the
-    normal equations:
-
-        x = (A^T A + eps*I)^{-1} A^T b
-
-    The small Tikhonov term (eps=1e-10) keeps the Gram matrix non-singular
-    when columns are nearly linearly dependent, which can happen in OMP when
-    the support set is large. This matches the numerical behaviour of the
-    CPU lstsq used in the original implementation and works identically on
-    both CPU and CUDA tensors.
-
-    Parameters
-    ----------
-    A : (n, s) tensor  — submatrix of dictionary atoms at current support
-    b : (n,)   tensor  — signal or residual
-
-    Returns
-    -------
-    x : (s,) tensor  — least-squares solution
-    """
-    eps = 1e-10
-    gram = A.T @ A + eps * torch.eye(A.shape[1], dtype=A.dtype, device=A.device)
-    rhs  = A.T @ b
-    # torch.linalg.solve is supported on CUDA and is more stable than inv()
-    return torch.linalg.solve(gram, rhs)
-
-
-def omp(
-    y: torch.Tensor,
-    D: torch.Tensor,
-    sparsity: int,
-    device: torch.device,
-) -> torch.Tensor:
-    """
-    Orthogonal Matching Pursuit for a single signal.
-
-    Solves:  argmin_x  ||y - Dx||_2^2    s.t.  ||x||_0 <= sparsity
-
-    All operations run on `device` (GPU or CPU).
-
-    Least-squares sub-problem solved via normal equations (_lstsq_gpu)
-    instead of torch.linalg.lstsq because lstsq only supports driver='gels'
-    on CUDA, which is not safe for all support set sizes.
-
-    Parameters
-    ----------
-    y        : (n,)   signal tensor on `device`
-    D        : (n, K) dictionary tensor on `device`
-    sparsity : int    maximum number of nonzero coefficients
-    device   : torch.device
-
-    Returns
-    -------
-    x : (K,) sparse coefficient tensor on `device`
-    """
-    K = D.shape[1]
-    x = torch.zeros(K, dtype=torch.float64, device=device)
-    residual = y.clone()
-    support: list[int] = []
-
-    for _ in range(sparsity):
-        # Correlate residual with all atoms — matmul on GPU
-        correlations = torch.abs(D.T @ residual)          # (K,)
-
-        # Mask already-selected atoms by setting their correlation to -inf
-        if support:
-            support_t = torch.tensor(support, dtype=torch.long, device=device)
-            correlations[support_t] = -torch.inf
-
-        # .item() pulls a Python int from the GPU tensor efficiently
-        best = int(correlations.argmax().item())
-        support.append(best)
-
-        # Least-squares projection onto current support via normal equations
-        support_t = torch.tensor(support, dtype=torch.long, device=device)
-        D_s = D[:, support_t]                             # (n, |support|)
-        x_s = _lstsq_gpu(D_s, y)                         # (|support|,)
-
-        # Update residual
-        residual = y - D_s @ x_s
-
-    # Scatter coefficients back into the full K-dimensional vector
-    support_t = torch.tensor(support, dtype=torch.long, device=device)
-    x[support_t] = x_s   # type: ignore[name-defined]
-    return x
-
-
-def batch_omp(
-    Y: torch.Tensor,
-    D: torch.Tensor,
-    sparsity: int,
-    device: torch.device,
-) -> torch.Tensor:
-    """
-    OMP applied column-wise to all N signals in Y.
-
-    The Python loop over N signals is unavoidable in OMP (each signal's
-    support set is data-dependent). But every inner operation — matmul,
-    lstsq — runs on the GPU.
-
-    Parameters
-    ----------
-    Y        : (n, N)  tensor on `device`
-    D        : (n, K)  dictionary tensor on `device`
-    sparsity : int
-    device   : torch.device
-
-    Returns
-    -------
-    X : (K, N) sparse code tensor on `device`
-    """
-    K = D.shape[1]
-    N = Y.shape[1]
-    X = torch.zeros((K, N), dtype=torch.float64, device=device)
-    for i in range(N):
-        X[:, i] = omp(Y[:, i], D, sparsity, device)
-    return X
-
-
-# ---------------------------------------------------------------------------
-# K-SVD dictionary update
-# ---------------------------------------------------------------------------
-
-def ksvd_update(
+def aksvd_update(
     Y: torch.Tensor,
     D: torch.Tensor,
     X: torch.Tensor,
     sparsity: int,
     n_iter: int,
+    tol: float,
     device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
-    Run K-SVD iterations on Y ≈ D @ X.
+    Run Approximate K-SVD iterations on Y ≈ D @ X.
 
-    Each atom d_k and its nonzero coefficients x_k_R are updated via a
-    rank-1 SVD of the partial residual matrix E_k (Eq. 10-11 in [1]).
+    Logic is identical to lc_ksvd.py:aksvd_update().
+    All tensor operations run on `device`.
 
-    All heavy operations (matmul, SVD, norm) run on `device`.
+    The sparse coding step (orthogonal_mp_gram) temporarily transfers
+    gram and Xy to CPU numpy, calls sklearn, and pushes X back to GPU.
+    Every other operation in this function stays on GPU.
 
-    Parameters
+    Parameters  (all tensors on `device`)
     ----------
-    Y        : (m, N)  signal tensor
-    D        : (m, K)  dictionary tensor
-    X        : (K, N)  sparse code tensor
+    Y        : (m, N)  signal or augmented matrix
+    D        : (m, K)  dictionary — columns are atoms
+    X        : (K, N)  sparse codes
     sparsity : int
     n_iter   : int
+    tol      : float   early-stop threshold on ||Y - DX||_F
     device   : torch.device
 
-    Returns
+    Returns   (both on `device`)
     -------
-    D : (m, K)  updated dictionary tensor
-    X : (K, N)  updated sparse code tensor
+    D : (m, K)
+    X : (K, N)
     """
     K = D.shape[1]
 
     for iteration in range(n_iter):
-        # ---- Sparse coding step (OMP) ------------------------------------
-        col_norms = torch.linalg.norm(D, dim=0, keepdim=True)    # (1, K)
+        # ---- Sparse coding (orthogonal_mp_gram via CPU) ------------------
+        # [CHANGED vs CPU] matmuls run on GPU; gram/Xy pulled to numpy
+        # only for the sklearn call, then X pushed back to GPU.
+        col_norms = torch.linalg.norm(D, dim=0, keepdim=True)   # (1, K) on GPU
         col_norms[col_norms == 0] = 1.0
-        D_normed = D / col_norms
-        X = batch_omp(Y, D_normed, sparsity, device)
+        D_normed = D / col_norms                                  # (m, K) on GPU
 
-        # ---- Dictionary update step (K-SVD) ------------------------------
+        gram_gpu = D_normed.T @ D_normed                         # (K, K) on GPU
+        Xy_gpu   = D_normed.T @ Y                                # (K, N) on GPU
+
+        # Pull to CPU numpy for sklearn — gram and Xy are small
+        gram_cpu = _to_cpu(gram_gpu)                             # (K, K) numpy
+        Xy_cpu   = _to_cpu(Xy_gpu)                              # (K, N) numpy
+
+        X_cpu = orthogonal_mp_gram(                              # (K, N) numpy
+            gram_cpu, Xy_cpu, n_nonzero_coefs=sparsity
+        )
+        X = _to_device(X_cpu, device)                           # (K, N) back on GPU
+
+        # ---- Tolerance check -----------------------------------------------
+        recon_err = torch.linalg.norm(Y - D_normed @ X).item()
+        if recon_err < tol:
+            logger.debug(
+                "Early stop at iter %d / %d  (err=%.6f < tol=%.6f)",
+                iteration + 1, n_iter, recon_err, tol,
+            )
+            D = D_normed
+            break
+
+        # ---- Dictionary update (power-method, fully on GPU) ---------------
+        D = D_normed.clone()
+
         for k in range(K):
-            # as_tuple=True returns a tuple of 1D tensors — take [0]
-            omega = torch.nonzero(X[k, :], as_tuple=True)[0]     # (nnz,)
+            # [CHANGED vs CPU] bool mask on GPU tensor
+            I = X[k, :] != 0                                    # (N,) bool on GPU
 
-            if omega.numel() == 0:
-                # Unused atom — reinitialise with worst-reconstructed signal
-                residuals  = Y - D @ X                            # (m, N)
-                err_norms  = torch.linalg.norm(residuals, dim=0)  # (N,)
-                worst      = int(err_norms.argmax().item())
-                new_atom   = Y[:, worst] - D @ X[:, worst]
-                n_val      = torch.linalg.norm(new_atom)
-                D[:, k]    = new_atom / n_val if n_val.item() > 1e-10 else new_atom
+            if not I.any():
+                residuals = Y - D @ X                           # (m, N) on GPU
+                err_norms = torch.linalg.norm(residuals, dim=0) # (N,)
+                worst     = int(err_norms.argmax().item())
+                new_atom  = Y[:, worst].clone()
+                n_val     = torch.linalg.norm(new_atom).item()
+                D[:, k]   = new_atom / n_val if n_val > 1e-10 else new_atom
                 continue
 
-            # Partial residual over signals that use atom k
-            X_k_row    = X[k, :].clone()
-            X[k, :]    = 0.0
-            E_k        = Y[:, omega] - D @ X[:, omega]            # (m, |omega|)
-            X[k, :]    = X_k_row
+            g = X[k, I]                                         # (nnz,) on GPU
 
-            # Rank-1 SVD — torch.linalg.svd dispatches to cuBLAS on GPU
-            # full_matrices=False gives compact (economy) SVD
-            U, s, Vh   = torch.linalg.svd(E_k, full_matrices=False)
-            D[:, k]    = U[:, 0]                                  # updated atom
-            X[k, omega] = s[0] * Vh[0, :]                        # updated codes
+            d_k_saved = D[:, k].clone()
+            D[:, k]   = 0.0
+            R         = Y[:, I] - D @ X[:, I]                  # (m, nnz) on GPU
+            D[:, k]   = d_k_saved
 
-        logger.debug("K-SVD iter %d / %d done", iteration + 1, n_iter)
+            d_new = R @ g                                       # (m,) on GPU
+            n_val = torch.linalg.norm(d_new).item()
+            if n_val < 1e-10:
+                continue
+            d_new = d_new / n_val
+
+            D[:, k] = d_new
+            X[k, I] = R.T @ d_new                              # (nnz,) on GPU
+
+        logger.debug("AKSVD iter %d / %d done", iteration + 1, n_iter)
 
     return D, X
 
 
 # ---------------------------------------------------------------------------
-# Label / discriminative-code helpers  (CPU — label ops only, no matmul)
+# Label / discriminative-code helpers  (CPU only — unchanged logic)
 # ---------------------------------------------------------------------------
 
 def build_label_matrix(labels: np.ndarray, num_classes: int) -> np.ndarray:
-    """
-    Build one-hot label matrix H ∈ {0,1}^{num_classes × N}. (CPU numpy)
-
-    Kept on CPU — label indexing is trivial and H is small.
-    """
+    """One-hot label matrix H ∈ {0,1}^{num_classes × N}. (CPU numpy)"""
     N = labels.shape[0]
     H = np.zeros((num_classes, N))
     H[labels, np.arange(N)] = 1.0
@@ -343,12 +230,7 @@ def build_discriminative_codes(
     labels: np.ndarray,
     atom_labels: np.ndarray,
 ) -> np.ndarray:
-    """
-    Build discriminative target sparse codes Q ∈ {0,1}^{K × N}. (CPU numpy)
-
-    Q[k, i] = 1 iff atom k and signal y_i share the same class label.
-    Kept on CPU — boolean comparison loop is negligible cost.
-    """
+    """Discriminative target Q ∈ {0,1}^{K × N}. (CPU numpy)"""
     K = atom_labels.shape[0]
     N = labels.shape[0]
     Q = np.zeros((K, N))
@@ -362,10 +244,10 @@ def init_atom_labels(
     num_classes: int,
     K: int,
 ) -> np.ndarray:
-    """Assign a class label to each dictionary atom uniformly. (CPU numpy)"""
+    """Assign class labels to dictionary atoms uniformly. (CPU numpy)"""
     atoms_per_class = K // num_classes
-    remainder = K % num_classes
-    atom_labels = []
+    remainder       = K % num_classes
+    atom_labels     = []
     for c in range(num_classes):
         count = atoms_per_class + (1 if c < remainder else 0)
         atom_labels.extend([c] * count)
@@ -373,68 +255,76 @@ def init_atom_labels(
 
 
 # ---------------------------------------------------------------------------
-# Dictionary initialisation
+# Dictionary initialisation  (SVD per class — CPU scipy, result pushed to GPU)
 # ---------------------------------------------------------------------------
 
-def init_dictionary_ksvd(
+def init_dictionary_svd(
     Y: torch.Tensor,
     labels: np.ndarray,
     atom_labels: np.ndarray,
-    sparsity: int,
-    n_iter: int,
     device: torch.device,
 ) -> torch.Tensor:
     """
-    Initialise D^(0) by running per-class K-SVD on the GPU.
+    Per-class SVD-based dictionary initialisation.
+
+    Logic is identical to lc_ksvd.py:init_dictionary_svd().
+
+    [CHANGED vs CPU] Y is a GPU tensor. Each class subset Y_c is pulled
+    to CPU numpy for scipy.sparse.linalg.svds (CPU-only), then the
+    resulting D_c is pushed back to the GPU tensor D0.
+    This happens once at training start, not per iteration.
 
     Parameters
     ----------
-    Y          : (n, N) tensor already on `device`
-    labels     : (N,)   CPU numpy array of class indices
-    atom_labels: (K,)   CPU numpy array of atom class assignments
-    sparsity   : int
-    n_iter     : int
+    Y          : (n, N) tensor on `device`
+    labels     : (N,)   CPU numpy array
+    atom_labels: (K,)   CPU numpy array
     device     : torch.device
 
     Returns
     -------
     D0 : (n, K) tensor on `device`
     """
-    n = Y.shape[0]
-    K = atom_labels.shape[0]
-    D0 = torch.zeros((n, K), dtype=torch.float64, device=device)
+    n           = Y.shape[0]
+    K           = atom_labels.shape[0]
+    D0          = torch.zeros((n, K), dtype=torch.float64, device=device)
     num_classes = int(atom_labels.max()) + 1
-
-    rng = np.random.default_rng(seed=0)
+    rng         = np.random.default_rng(seed=42)
 
     for c in range(num_classes):
         signal_mask = labels == c
         atom_mask   = atom_labels == c
-        Y_c = Y[:, signal_mask]                          # (n, N_c) on device
-        K_c = int(atom_mask.sum())
+        K_c         = int(atom_mask.sum())
 
-        if Y_c.shape[1] == 0 or K_c == 0:
+        # [CHANGED vs CPU] Pull class subset to CPU for scipy svds
+        Y_c_cpu = _to_cpu(Y[:, signal_mask])                # (n, N_c) numpy
+
+        if Y_c_cpu.shape[1] == 0 or K_c == 0:
             continue
 
-        # Initialise random unit columns — create on CPU then move to device
-        D_c_np = rng.standard_normal((n, K_c))
-        col_norms_np = np.linalg.norm(D_c_np, axis=0, keepdims=True)
-        col_norms_np[col_norms_np == 0] = 1.0
-        D_c_np /= col_norms_np
-        D_c = _to_device(D_c_np, device)
+        if Y_c_cpu.shape[1] < K_c:
+            D_c_cpu = rng.standard_normal((n, K_c))
+        else:
+            try:
+                _, s, vt = scipy.sparse.linalg.svds(Y_c_cpu.T, k=K_c)
+                s        = s[::-1]
+                vt       = vt[::-1, :]
+                D_c_cpu  = (np.diag(s) @ vt).T              # (n, K_c) numpy
+            except Exception:
+                D_c_cpu = rng.standard_normal((n, K_c))
 
-        X_c = torch.zeros((K_c, Y_c.shape[1]), dtype=torch.float64, device=device)
-        D_c, _ = ksvd_update(Y_c, D_c, X_c, sparsity, n_iter, device)
+        col_norms = np.linalg.norm(D_c_cpu, axis=0, keepdims=True)
+        col_norms[col_norms == 0] = 1.0
+        D_c_cpu /= col_norms
 
-        # atom_mask is a numpy boolean array — convert to torch for indexing
-        atom_mask_t = torch.from_numpy(atom_mask).to(device)
-        D0[:, atom_mask_t] = D_c
+        # Push result back to GPU
+        D0[:, atom_mask] = _to_device(D_c_cpu, device)      # assign on GPU
 
     return D0
 
 
 # ---------------------------------------------------------------------------
-# Ridge regression  (pure linear algebra — fully on GPU)
+# Ridge regression  (fully on GPU)
 # ---------------------------------------------------------------------------
 
 def ridge_regression(
@@ -448,24 +338,25 @@ def ridge_regression(
 
     Closed form:  W = T @ X^T @ (X @ X^T + lam * I)^{-1}
 
-    Parameters
+    Logic identical to lc_ksvd.py. All ops on GPU.
+
+    Parameters  (all on `device`)
     ----------
-    X      : (K, N) sparse codes on `device`
-    T      : (m, N) target matrix on `device`
-    lam    : float  ridge regularisation parameter
-    device : torch.device
+    X   : (K, N)
+    T   : (m, N)
+    lam : float
 
     Returns
     -------
-    W : (m, K) tensor on `device`
+    W : (m, K) on `device`
     """
-    K = X.shape[0]
+    K    = X.shape[0]
     gram = X @ X.T + lam * torch.eye(K, dtype=torch.float64, device=device)
     return T @ X.T @ torch.linalg.inv(gram)
 
 
 # ---------------------------------------------------------------------------
-# Extract D, A, W from D_new and renormalise (Eq. 15 / Eq. 23)
+# Extract and renormalise  (fully on GPU)
 # ---------------------------------------------------------------------------
 
 def extract_and_renorm(
@@ -477,21 +368,18 @@ def extract_and_renorm(
     device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Recover D_hat, A_hat, W_hat from the jointly normalised D_new.
+    Recover D_hat, A_hat, W_hat from jointly normalised D_new.
 
-    All tensor slicing and division run on `device`.
+    Logic identical to lc_ksvd.py. All ops on GPU.
     """
     D_block = D_new[:n, :]
     A_block = D_new[n:n + K, :] / torch.tensor(alpha, dtype=torch.float64, device=device).sqrt()
     W_block = D_new[n + K:, :]  / torch.tensor(beta,  dtype=torch.float64, device=device).sqrt()
 
-    d_norms = torch.linalg.norm(D_block, dim=0)      # (K,)
+    d_norms = torch.linalg.norm(D_block, dim=0)             # (K,)
     d_norms[d_norms == 0] = 1.0
 
-    D_hat = D_block / d_norms
-    A_hat = A_block / d_norms
-    W_hat = W_block / d_norms
-    return D_hat, A_hat, W_hat
+    return D_block / d_norms, A_block / d_norms, W_block / d_norms
 
 
 # ---------------------------------------------------------------------------
@@ -503,30 +391,20 @@ class LCKSVDConfig:
     """
     Hyperparameters for LC-KSVD.
 
-    Attributes
-    ----------
-    K        : number of dictionary atoms
-    sparsity : sparsity level T
-    n_iter   : outer LC-KSVD iterations
-    alpha    : weight of discriminative sparse-code error term
-    beta     : weight of classification error term (LC-KSVD2 only)
-    lambda1  : ridge regularisation for W
-    lambda2  : ridge regularisation for A
-    init_iter: K-SVD iterations for dictionary initialisation
-    variant  : 'lcksvd1' or 'lcksvd2'
-    use_gpu  : if True, run on CUDA GPU via PyTorch.
-               Falls back to CPU automatically if CUDA is unavailable.
+    Identical to lc_ksvd.py:LCKSVDConfig with one addition:
+      use_gpu : bool — set True to run on CUDA GPU via PyTorch.
+                       Falls back to CPU automatically if CUDA unavailable.
     """
-    K: int          = 128
-    sparsity: int   = 30
-    n_iter: int     = 10
-    alpha: float    = 16.0
-    beta: float     = 4.0
-    lambda1: float  = 1e-4
-    lambda2: float  = 1e-4
-    init_iter: int  = 5
-    variant: str    = "lcksvd2"
-    use_gpu: bool   = True
+    K: int         = 256
+    sparsity: int  = 30
+    n_iter: int    = 10
+    tol: float     = 1e-6
+    alpha: float   = 16.0
+    beta: float    = 4.0
+    lambda1: float = 1e-4
+    lambda2: float = 1e-4
+    variant: str   = "lcksvd2"
+    use_gpu: bool  = True        # [ADDED vs CPU]
 
 
 # ---------------------------------------------------------------------------
@@ -535,27 +413,26 @@ class LCKSVDConfig:
 
 class LCKSVD:
     """
-    Label Consistent K-SVD (LC-KSVD) — PyTorch GPU backend.
+    Label Consistent K-SVD — Approximate K-SVD variant, PyTorch GPU backend.
 
-    All public methods accept and return standard numpy arrays (CPU).
-    PyTorch tensors are used internally and converted back to numpy at
-    the transfer boundary — the rest of the pipeline is unaffected.
+    Public API is identical to lc_ksvd.py:LCKSVD.
+    All public methods accept and return CPU numpy arrays.
+    GPU tensors are used internally and converted back at the boundary.
 
     Usage
     -----
-    >>> cfg = LCKSVDConfig(K=256, sparsity=10, use_gpu=True)
+    >>> cfg   = LCKSVDConfig(K=256, sparsity=10, use_gpu=True)
     >>> model = LCKSVD(cfg)
     >>> model.fit(Y_train, labels_train, num_classes=2)
-    >>> codes = model.encode(Y_test)       # numpy array
-    >>> preds = model.predict(Y_test)      # numpy array
+    >>> codes = model.encode(Y_test)    # numpy (K, N_test)
+    >>> preds = model.predict(Y_test)   # numpy (N_test,)
     """
 
     def __init__(self, config: LCKSVDConfig = LCKSVDConfig()) -> None:
         self.cfg    = config
-        self.device = _resolve_device(config.use_gpu)
+        self.device = _resolve_device(config.use_gpu)           # [ADDED vs CPU]
         self.on_gpu = self.device.type == "cuda"
 
-        # Learned parameters — always stored as CPU numpy arrays after fit()
         self.D_hat: Optional[np.ndarray] = None
         self.A_hat: Optional[np.ndarray] = None
         self.W_hat: Optional[np.ndarray] = None
@@ -563,8 +440,7 @@ class LCKSVD:
         self.num_classes_: Optional[int] = None
 
         logger.info(
-            "LCKSVD initialised. Backend: %s",
-            f"GPU ({self.device})" if self.on_gpu else "CPU (PyTorch)",
+            "LCKSVD initialised — device: %s", self.device
         )
 
     # ------------------------------------------------------------------
@@ -578,12 +454,12 @@ class LCKSVD:
         num_classes: int,
     ) -> "LCKSVD":
         """
-        Learn dictionary D, transform A, and classifier W from labelled data.
+        Learn dictionary D, transform A, and classifier W.
 
         Parameters
         ----------
-        Y           : (n, N)  training signal matrix — CPU numpy array
-        labels      : (N,)    0-based integer class indices — CPU numpy
+        Y           : (n, N)  CPU numpy — moved to GPU at entry
+        labels      : (N,)    CPU numpy — stays CPU throughout
         num_classes : int
 
         Returns
@@ -597,79 +473,91 @@ class LCKSVD:
         self.num_classes_ = num_classes
 
         logger.info(
-            "LC-KSVD fit: n=%d, N=%d, K=%d, sparsity=%d, variant=%s, device=%s",
+            "LC-KSVD fit [AKSVD-GPU]: n=%d, N=%d, K=%d, sparsity=%d, variant=%s, device=%s",
             n, N, K, cfg.sparsity, cfg.variant, device,
         )
 
-        # ---- Transfer Y to device ----------------------------------------
-        # Labels stay as numpy — they are only used for index arithmetic.
-        Y_dev = _to_device(Y, device)                            # (n, N) on GPU
+        # ---- [CHANGED] Transfer Y to GPU ---------------------------------
+        Y_dev = _to_device(Y, device)                           # (n, N) on GPU
 
         # ---- Step 1: Assign class labels to atoms (CPU) ------------------
         atom_labels = init_atom_labels(labels, num_classes, K)
         self.atom_labels_ = atom_labels
 
         # ---- Step 2: Build supervised targets (CPU → GPU) ----------------
-        H_cpu = build_label_matrix(labels, num_classes)          # (num_classes, N)
-        Q_cpu = build_discriminative_codes(labels, atom_labels)  # (K, N)
+        H_cpu = build_label_matrix(labels, num_classes)         # (num_classes, N)
+        Q_cpu = build_discriminative_codes(labels, atom_labels) # (K, N)
+        H     = _to_device(H_cpu, device)                       # on GPU
+        Q     = _to_device(Q_cpu, device)                       # on GPU
 
-        H = _to_device(H_cpu, device)
-        Q = _to_device(Q_cpu, device)
+        # ---- Step 3: Initialise D^(0) via per-class SVD (CPU→GPU) -------
+        logger.info("Initialising dictionary via per-class SVD ...")
+        D0 = init_dictionary_svd(Y_dev, labels, atom_labels, device)  # (n, K) on GPU
 
-        # ---- Step 3: Initialise D^(0) (GPU) ------------------------------
-        logger.info("Initialising dictionary via per-class K-SVD ...")
-        D0 = init_dictionary_ksvd(
-            Y_dev, labels, atom_labels, cfg.sparsity, cfg.init_iter, device
-        )
-
-        # ---- Step 4: Initialise sparse codes X^(0) (GPU) -----------------
+        # ---- Step 4: Initialise sparse codes X^(0) -----------------------
+        # [CHANGED] matmuls on GPU; gram/Xy pulled to CPU for sklearn OMP
         col_norms = torch.linalg.norm(D0, dim=0, keepdim=True)
         col_norms[col_norms == 0] = 1.0
-        D_normed = D0 / col_norms
-        X0 = batch_omp(Y_dev, D_normed, cfg.sparsity, device)
+        D0_normed  = D0 / col_norms
+        gram_cpu   = _to_cpu(D0_normed.T @ D0_normed)           # (K, K) numpy
+        Xy_cpu     = _to_cpu(D0_normed.T @ Y_dev)               # (K, N) numpy
+        X0         = _to_device(                                 # (K, N) on GPU
+            orthogonal_mp_gram(gram_cpu, Xy_cpu, n_nonzero_coefs=cfg.sparsity),
+            device,
+        )
 
-        # ---- Step 5: Initialise A^(0) and W^(0) via ridge regression -----
+        # ---- Step 5: Initialise A^(0) and W^(0) (GPU) -------------------
         A0 = ridge_regression(X0, Q, cfg.lambda2, device)
         W0 = ridge_regression(X0, H, cfg.lambda1, device)
 
         # ---- Step 6: Build augmented matrices (GPU) ----------------------
         effective_beta = 0.0 if cfg.variant == "lcksvd1" else cfg.beta
 
-        sq_alpha = torch.tensor(cfg.alpha,       dtype=torch.float64, device=device).sqrt()
-        sq_beta  = torch.tensor(effective_beta,  dtype=torch.float64, device=device).sqrt()
+        sq_alpha = torch.tensor(cfg.alpha,      dtype=torch.float64, device=device).sqrt()
+        sq_beta  = torch.tensor(effective_beta, dtype=torch.float64, device=device).sqrt()
 
-        Y_new = torch.vstack([Y_dev, sq_alpha * Q, sq_beta * H])
-        D_new = torch.vstack([D0,    sq_alpha * A0, sq_beta * W0])
+        Y_new = torch.vstack([Y_dev, sq_alpha * Q,  sq_beta * H ])  # (n+K+C, N)
+        D_new = torch.vstack([D0,    sq_alpha * A0, sq_beta * W0])  # (n+K+C, K)
 
         col_norms = torch.linalg.norm(D_new, dim=0, keepdim=True)
         col_norms[col_norms == 0] = 1.0
         D_new = D_new / col_norms
 
-        # ---- Step 7: K-SVD on the augmented system (GPU) -----------------
+        # ---- Step 7: Approximate K-SVD on augmented system (GPU) ---------
         logger.info(
-            "Running K-SVD on augmented system for %d iterations ...", cfg.n_iter
+            "Running AKSVD on augmented system for up to %d iterations ...",
+            cfg.n_iter,
         )
-        D_new, X = ksvd_update(Y_new, D_new, X0, cfg.sparsity, cfg.n_iter, device)
+        D_new, X = aksvd_update(
+            Y_new, D_new, X0, cfg.sparsity, cfg.n_iter, cfg.tol, device
+        )
 
-        # ---- Step 8: Extract and renormalise D, A, W (GPU) ---------------
+        # ---- Step 8: Extract and renormalise (GPU) -----------------------
         D_hat_dev, A_hat_dev, W_hat_dev = extract_and_renorm(
-            D_new, n, K, cfg.alpha,
+            D_new, n, K,
+            cfg.alpha,
             effective_beta if effective_beta > 0 else 1.0,
             device,
         )
 
-        # ---- Step 9: LC-KSVD1 — refit W separately (GPU) ----------------
+        # ---- Step 9: LC-KSVD1 — refit W separately (GPU + CPU OMP) ------
         if cfg.variant == "lcksvd1":
             logger.info("LC-KSVD1: fitting classifier W separately ...")
-            X_final   = batch_omp(Y_dev, D_hat_dev, cfg.sparsity, device)
+            col_norms    = torch.linalg.norm(D_hat_dev, dim=0, keepdim=True)
+            col_norms[col_norms == 0] = 1.0
+            D_hat_normed = D_hat_dev / col_norms
+            gram_cpu     = _to_cpu(D_hat_normed.T @ D_hat_normed)   # (K, K)
+            Xy_cpu       = _to_cpu(D_hat_normed.T @ Y_dev)          # (K, N)
+            X_final      = _to_device(
+                orthogonal_mp_gram(gram_cpu, Xy_cpu, n_nonzero_coefs=cfg.sparsity),
+                device,
+            )
             W_hat_dev = ridge_regression(X_final, H, cfg.lambda1, device)
 
-        # ---- Transfer learned parameters back to CPU numpy ---------------
-        # Downstream consumers (Evaluator, LCKSVDEvaluator, sklearn)
-        # always receive plain numpy arrays.
-        self.D_hat = _to_numpy(D_hat_dev)
-        self.A_hat = _to_numpy(A_hat_dev)
-        self.W_hat = _to_numpy(W_hat_dev)
+        # ---- [CHANGED] Transfer learned params back to CPU numpy ---------
+        self.D_hat = _to_cpu(D_hat_dev)
+        self.A_hat = _to_cpu(A_hat_dev)
+        self.W_hat = _to_cpu(W_hat_dev)
 
         logger.info("LC-KSVD training complete.")
         return self
@@ -684,24 +572,30 @@ class LCKSVD:
 
         Parameters
         ----------
-        Y : (n, N_test) — CPU numpy array
+        Y : (n, N_test)  CPU numpy
 
         Returns
         -------
-        X : (K, N_test) — CPU numpy array
+        X : (K, N_test)  CPU numpy
         """
         if self.D_hat is None:
             raise RuntimeError("Model is not fitted. Call .fit() first.")
 
-        device = self.device
-        Y_dev  = _to_device(Y, device)
-        D_dev  = _to_device(self.D_hat, device)
+        device    = self.device
+        Y_dev     = _to_device(Y, device)
+        D_dev     = _to_device(self.D_hat, device)
 
-        X_dev = batch_omp(Y_dev, D_dev, self.cfg.sparsity, device)
-        return _to_numpy(X_dev)
+        col_norms = torch.linalg.norm(D_dev, dim=0, keepdim=True)
+        col_norms[col_norms == 0] = 1.0
+        D_normed  = D_dev / col_norms
+
+        # [CHANGED] matmuls on GPU; pull to CPU for sklearn
+        gram_cpu  = _to_cpu(D_normed.T @ D_normed)              # (K, K)
+        Xy_cpu    = _to_cpu(D_normed.T @ Y_dev)                 # (K, N_test)
+        return orthogonal_mp_gram(gram_cpu, Xy_cpu, n_nonzero_coefs=self.cfg.sparsity)
 
     # ------------------------------------------------------------------
-    # predict
+    # predict / predict_scores  (unchanged logic)
     # ------------------------------------------------------------------
 
     def predict(self, Y: np.ndarray) -> np.ndarray:
@@ -710,19 +604,15 @@ class LCKSVD:
 
         Parameters
         ----------
-        Y : (n, N_test) — CPU numpy array
+        Y : (n, N_test)  CPU numpy
 
         Returns
         -------
-        predicted_labels : (N_test,) — CPU numpy array of class indices
+        predicted_labels : (N_test,)  CPU numpy
         """
-        X      = self.encode(Y)            # CPU numpy (K, N_test)
-        scores = self.W_hat @ X            # CPU matmul — W_hat is small
+        X      = self.encode(Y)
+        scores = self.W_hat @ X
         return np.argmax(scores, axis=0)
-
-    # ------------------------------------------------------------------
-    # predict_scores
-    # ------------------------------------------------------------------
 
     def predict_scores(self, Y: np.ndarray) -> np.ndarray:
         """
@@ -730,11 +620,11 @@ class LCKSVD:
 
         Parameters
         ----------
-        Y : (n, N_test) — CPU numpy array
+        Y : (n, N_test)  CPU numpy
 
         Returns
         -------
-        scores : (num_classes, N_test) — CPU numpy array
+        scores : (num_classes, N_test)  CPU numpy
         """
         X = self.encode(Y)
         return self.W_hat @ X
@@ -749,12 +639,12 @@ if __name__ == "__main__":
 
     rng = np.random.default_rng(seed=42)
 
-    num_classes        = 3
-    n_features         = 50
-    n_train_per_class  = 40
-    n_test_per_class   = 10
-    K                  = num_classes * 20
-    sparsity           = 6
+    num_classes       = 3
+    n_features        = 50
+    n_train_per_class = 40
+    n_test_per_class  = 10
+    K                 = num_classes * 20
+    sparsity          = 6
 
     centres = rng.standard_normal((num_classes, n_features))
     Y_train_list, Y_test_list = [], []
@@ -775,9 +665,11 @@ if __name__ == "__main__":
     labels_train = np.array(lbl_train_list)
     labels_test  = np.array(lbl_test_list)
 
-    cfg   = LCKSVDConfig(K=K, sparsity=sparsity, n_iter=10, use_gpu=True)
-    model = LCKSVD(cfg)
-    model.fit(Y_train, labels_train, num_classes=num_classes)
-
-    preds = model.predict(Y_test)
-    print(f"Test accuracy: {np.mean(preds == labels_test) * 100:.1f}%")
+    for variant in ("lcksvd2", "lcksvd1"):
+        cfg   = LCKSVDConfig(K=K, sparsity=sparsity, n_iter=10, tol=1e-6,
+                             variant=variant, use_gpu=True)
+        model = LCKSVD(cfg)
+        model.fit(Y_train, labels_train, num_classes=num_classes)
+        preds = model.predict(Y_test)
+        acc   = float(np.mean(preds == labels_test))
+        print(f"{variant} test accuracy: {acc * 100:.1f}%")

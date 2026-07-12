@@ -4,12 +4,12 @@ from dict_learners.frozen_ksvd import FrozenKSVD
 
 class FrozenKSVDLearner(DictLearner):
     def __init__(
-        self,
-        dimensions: int = 8192,
-        n_frozen: int = 0,
-        max_iter: int = 10,
-        tol: float = 1e-6,
-        n_non_zero_coefs: int = 10,
+            self,
+            dimensions: int = 128,
+            n_frozen: int = 10,
+            max_iter: int = 10,
+            tol: float = 1e-6,
+            n_non_zero_coefs: int = 10,
     ):
         super().__init__(name="FrozenKSVD")
         self._dictionary = None
@@ -27,10 +27,10 @@ class FrozenKSVDLearner(DictLearner):
         )
 
     def fit(self, training_graph_embeddings, frozen_atoms=None):
-        self.frozen_ksvd.fit(
+        self._dictionary = self.frozen_ksvd.fit(
             training_graph_embeddings, frozen_atoms=frozen_atoms
-        )
-        self._dictionary = self.frozen_ksvd.components_
+        ).components_
+
         return self
 
     def infer(self, infer_graph_embeddings):

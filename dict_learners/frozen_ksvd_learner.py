@@ -5,8 +5,8 @@ from dict_learners.frozen_ksvd import FrozenKSVD
 class FrozenKSVDLearner(DictLearner):
     def __init__(
             self,
-            dimensions: int = 128,
-            n_frozen: int = 10,
+            dimensions: int = 4096,
+            n_frozen: int = 0,
             max_iter: int = 10,
             tol: float = 1e-6,
             n_non_zero_coefs: int = 10,

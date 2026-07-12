@@ -39,10 +39,10 @@ class WL_FrozenKSVD:
         # data by class and build the dictionary incrementally:
         #   1. Base dictionary from majority class (label -1)
         #   2. Residual atoms for minority class on top of frozen base
-        frozen_ksvd_learner = FrozenKSVDLearner().fit(
+        frozen_ksvd_learner = FrozenKSVDLearner(n_components_base=3000,
+            n_components_residual=548).fit(
             training_graph_embeddings=graph_embeddings,
-            labels=y_vocab_train,
-        )
+            labels=y_vocab_train)
 
         # generating sparse vectors for graphs for training the ml models
         graph_embeddings_ml_train = wl.generate_inferencing_embeddings(G_ML_train)

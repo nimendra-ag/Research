@@ -1,6 +1,6 @@
 """
-LC-KSVD: Label Consistent K-SVD
-================================
+LC-KSVD: Label Consistent K-SVD  —  Approximate K-SVD variant
+==============================================================
 Implementation based on:
   [1] Jiang, Z., Lin, Z., Davis, L.S. (2011).
       "Learning a Discriminative Dictionary for Sparse Coding via Label Consistent K-SVD."
@@ -23,148 +23,103 @@ LC-KSVD1 adds a "discriminative sparse-code error":
     min_{D, A, X}  ||Y - DX||_F^2  +  alpha * ||Q - AX||_F^2
                    s.t. ||x_i||_0 <= T
 
-    Q  : ideal "discriminative" sparse codes — binary matrix whose
-         (j, i)-th entry is 1 iff dictionary atom j and signal y_i
-         share the same class label.
-    A  : linear transform that maps sparse codes toward Q.
-
 LC-KSVD2 additionally adds a classification error:
     min_{D, W, A, X}  ||Y - DX||_F^2
                     + alpha * ||Q - AX||_F^2
                     + beta  * ||H - WX||_F^2
                    s.t. ||x_i||_0 <= T
 
-    H  : one-hot label matrix  (num_classes x N).
-    W  : linear classifier weights  (num_classes x K).
+The key trick (Section 3.3 in [2]) stacks everything into one K-SVD
+problem on augmented matrices Y_new and D_new with the same X.
 
-The key trick (Section 3.3 in [2]) is that by stacking the matrices:
+Approximate K-SVD variant
+--------------------------
+This version replaces the two original sub-routines with their
+Approximate K-SVD equivalents from Rubinstein et al. (2008),
+which is what the `ksvd` library's ApproximateKSVD class uses:
 
-    Y_new = [Y; sqrt(alpha)*Q; sqrt(beta)*H]
-    D_new = [D; sqrt(alpha)*A; sqrt(beta)*W]
+  Sparse coding   : orthogonal_mp_gram (sklearn) — Gram-space OMP.
+                    Precomputes D @ D^T and D @ Y^T once per iteration,
+                    then solves all N signals in projected space.
+                    Much faster than signal-space OMP for large N.
 
-the combined objective becomes the standard K-SVD objective on Y_new
-and D_new with the SAME sparse codes X:
+  Dictionary update: power-method rank-1 update instead of truncated SVD.
+                    For each atom k, the new atom is computed as a
+                    weighted sum of residual rows (r^T g), then
+                    normalised. Coefficients are updated as r @ d.
+                    No SVD call — faster per atom.
 
-    min_{D_new, X}  ||Y_new - D_new * X||_F^2    s.t. ||x_i||_0 <= T
+  Initialisation  : per-class SVD-based init (scipy.sparse.linalg.svds)
+                    instead of per-class random K-SVD.
 
-After running K-SVD on these augmented matrices, D, A, W are extracted
-from D_new and renormalised (Eq. 23 / Eq. 15 in [2]).
+  Convergence     : tolerance-based early stopping on reconstruction
+                    error, plus a max iteration cap.
 
-Sparse coding uses Orthogonal Matching Pursuit (OMP).
+Everything else — the LC-KSVD augmented system, build_label_matrix,
+build_discriminative_codes, ridge_regression, extract_and_renorm,
+the LCKSVD class and all its methods — is identical to before.
 
-Dictionary update uses truncated SVD (one atom at a time, K-SVD style).
+Convention note
+---------------
+  D  : (n, K)  — atoms are COLUMNS  (our convention, matches the paper)
+  Y  : (n, N)  — signals are COLUMNS
+  X  : (K, N)  — sparse codes, one column per signal
 
-Attributes recovered after training
-------------------------------------
-D_hat : (n, K)          - dictionary atoms (L2-normalised per column)
-A_hat : (K, K)          - linear transform for discriminative codes
-W_hat : (num_classes, K) - linear classifier weights
+  The AKSVD library uses the transposed convention (atoms are rows).
+  We adapt the update formula here so the maths is identical but the
+  array layout matches our pipeline.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
-from numpy.linalg import norm, svd
+import scipy.sparse.linalg
+from numpy.linalg import norm
+from sklearn.linear_model import orthogonal_mp_gram
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Orthogonal Matching Pursuit (OMP)
+# Approximate K-SVD dictionary update
 # ---------------------------------------------------------------------------
 
-def omp(y: np.ndarray, D: np.ndarray, sparsity: int) -> np.ndarray:
-    """
-    Orthogonal Matching Pursuit for a single signal.
-
-    Solves:  argmin_x  ||y - Dx||_2^2    s.t.  ||x||_0 <= sparsity
-
-    Parameters
-    ----------
-    y        : (n,)   signal to represent
-    D        : (n, K) dictionary — columns should be L2-normalised
-    sparsity : int    maximum number of nonzero coefficients
-
-    Returns
-    -------
-    x : (K,) sparse coefficient vector
-    """
-    n, K = D.shape
-    x = np.zeros(K)
-    residual = y.copy()
-    support: list[int] = []
-
-    for _ in range(sparsity):
-        # Correlate residual with all atoms
-        correlations = np.abs(D.T @ residual)
-        # Pick the most correlated atom not already in the support
-        correlations[support] = -np.inf
-        best = int(np.argmax(correlations))
-        support.append(best)
-
-        # Least-squares projection onto the current support (normal equations)
-        D_s = D[:, support]  # (n, |support|)
-        # x_s = (D_s^T D_s)^{-1} D_s^T y  — use lstsq for numerical stability
-        x_s, _, _, _ = np.linalg.lstsq(D_s, y, rcond=None)
-
-        # Update residual
-        residual = y - D_s @ x_s
-
-    # Place coefficients back into the full K-dimensional vector
-    x[support] = x_s  # type: ignore[name-defined]
-    return x
-
-
-def batch_omp(Y: np.ndarray, D: np.ndarray, sparsity: int) -> np.ndarray:
-    """
-    OMP applied column-wise to all N signals in Y.
-
-    Parameters
-    ----------
-    Y        : (n, N)  matrix of signals
-    D        : (n, K)  dictionary
-    sparsity : int     sparsity level T
-
-    Returns
-    -------
-    X : (K, N) sparse code matrix
-    """
-    K = D.shape[1]
-    N = Y.shape[1]
-    X = np.zeros((K, N))
-    for i in range(N):
-        X[:, i] = omp(Y[:, i], D, sparsity)
-    return X
-
-
-# ---------------------------------------------------------------------------
-# K-SVD dictionary update
-# ---------------------------------------------------------------------------
-
-def ksvd_update(
+def aksvd_update(
     Y: np.ndarray,
     D: np.ndarray,
     X: np.ndarray,
     sparsity: int,
     n_iter: int,
+    tol: float = 1e-6,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Run K-SVD iterations on Y ≈ D @ X.
+    Run Approximate K-SVD iterations on Y ≈ D @ X.
 
-    Each atom d_k and its nonzero coefficients x_k_R are updated via a
-    rank-1 SVD of the partial residual matrix E_k (Eq. 10-11 in [1]).
+    Mirrors ApproximateKSVD._update_dict() from the library, adapted
+    to our column-major convention (D columns, Y columns, X columns).
+
+    For each atom k the update is:
+      1. Find signals that use atom k:  I = X[k, :] != 0
+      2. Compute partial residual:      R = Y[:, I] - D @ X[:, I]  +  d_k x_k_I^T
+                                          = Y[:, I] - (D without d_k) @ X[:, I]
+      3. New atom:     d_k = R @ g / ||R @ g||   where g = X[k, I]  (coefficients)
+      4. New codes:    X[k, I] = R^T @ d_k
+
+    This is a power-method rank-1 approximation: one step toward the
+    best rank-1 factor of R, without computing a full SVD.
 
     Parameters
     ----------
-    Y        : (m, N)  signal matrix (may be the stacked Y_new)
-    D        : (m, K)  initial dictionary (L2-normalised columns)
-    X        : (K, N)  initial sparse codes
+    Y        : (m, N)  signal (or augmented) matrix
+    D        : (m, K)  dictionary — columns are atoms
+    X        : (K, N)  sparse codes
     sparsity : int     sparsity level T
-    n_iter   : int     number of outer K-SVD iterations
+    n_iter   : int     maximum number of outer iterations
+    tol      : float   early-stop when ||Y - DX||_F < tol
 
     Returns
     -------
@@ -174,49 +129,90 @@ def ksvd_update(
     K = D.shape[1]
 
     for iteration in range(n_iter):
-        # ---- Sparse coding step (OMP) ------------------------------------
-        # Normalise dictionary columns before OMP so inner products are
-        # proper cosine similarities.
-        col_norms = norm(D, axis=0, keepdims=True)
+        # ---- Sparse coding step (sklearn orthogonal_mp_gram) -------------
+        # Mirrors ApproximateKSVD._transform() directly.
+        # D is (m, K) columns; library uses (K, m) rows — transpositions
+        # below produce the identical Gram matrix and projections.
+        col_norms = norm(D, axis=0, keepdims=True)   # (1, K)
         col_norms[col_norms == 0] = 1.0
         D_normed = D / col_norms
-        X = batch_omp(Y, D_normed, sparsity)
+        gram = D_normed.T @ D_normed                 # (K, K)  — mirrors D.dot(D.T)
+        Xy   = D_normed.T @ Y                        # (K, N)  — mirrors D.dot(X.T)
+        X    = orthogonal_mp_gram(gram, Xy, n_nonzero_coefs=sparsity)  # (K, N)
 
-        # ---- Dictionary update step (K-SVD) ------------------------------
+        # ---- Tolerance check (mirrors ApproximateKSVD.fit) ---------------
+        # Check reconstruction error before the dictionary update.
+        # If already within tolerance, stop early.
+        recon_err = norm(Y - D_normed @ X)
+        if recon_err < tol:
+            logger.debug(
+                "Early stop at iter %d / %d  (err=%.6f < tol=%.6f)",
+                iteration + 1, n_iter, recon_err, tol,
+            )
+            D = D_normed   # keep the normalised version as the final D
+            break
+
+        # ---- Dictionary update step (Approximate K-SVD) ------------------
+        # Work with normalised D so atom norms stay controlled.
+        D = D_normed.copy()
+
         for k in range(K):
-            # Indices of signals that use atom k
-            omega = np.nonzero(X[k, :])[0]
-            if omega.size == 0:
-                # Atom is unused — reinitialise with the signal with the
-                # largest current reconstruction error (common heuristic)
+            # Boolean mask of signals that have a nonzero coefficient for atom k
+            # Mirrors:  I = gamma[:, j] > 0  in the library
+            # (our X[k,:] plays the role of gamma[:,j])
+            I = X[k, :] != 0        # (N,) boolean mask
+            if not np.any(I):
+                # Unused atom — reinitialise with the worst-reconstructed signal.
+                # This heuristic is not in the library but is standard practice.
                 residuals = Y - D @ X
                 err_norms = norm(residuals, axis=0)
-                worst = int(np.argmax(err_norms))
-                new_atom = Y[:, worst] - D @ X[:, worst]
-                n = norm(new_atom)
-                D[:, k] = new_atom / n if n > 1e-10 else new_atom
+                worst     = int(np.argmax(err_norms))
+                new_atom  = Y[:, worst].copy()
+                n_val     = norm(new_atom)
+                D[:, k]   = new_atom / n_val if n_val > 1e-10 else new_atom
                 continue
 
-            # Partial residual: error of all OTHER atoms for the signals
-            # that involve atom k
-            X_k_row = X[k, :].copy()
-            X[k, :] = 0.0                           # temporarily zero out row k
-            E_k = Y[:, omega] - D @ X[:, omega]    # (m, |omega|)
-            X[k, :] = X_k_row                      # restore
+            # Coefficients of atom k for the signals that use it: g = X[k, I]
+            # Mirrors:  g = gamma[I, j].T
+            g = X[k, I]                             # (nnz,)
 
-            # Rank-1 SVD of E_k
-            # E_k ≈ d_k * x_k_R^T  (best rank-1 approximation)
-            U, s, Vt = svd(E_k, full_matrices=False)
-            D[:, k] = U[:, 0]                       # updated atom
-            X[k, omega] = s[0] * Vt[0, :]          # updated coefficients
+            # Partial residual: Y[:, I] minus contribution of ALL atoms
+            # then add back atom k's own contribution so we isolate what
+            # atom k should represent.
+            # Mirrors:  r = X[I, :] - gamma[I, :].dot(D)
+            #                         ^^^^^ this is the full reconstruction
+            # In our convention (columns):
+            #   r = (Y[:, I] - D @ X[:, I]).T  +  outer(g, d_k)  — then .T back
+            # Equivalently, zero atom k out temporarily:
+            d_k_saved = D[:, k].copy()
+            D[:, k]   = 0.0
+            R = Y[:, I] - D @ X[:, I]              # (m, nnz)  partial residual
+            D[:, k] = d_k_saved                    # restore
 
-        logger.debug("K-SVD iter %d / %d done", iteration + 1, n_iter)
+            # New atom: weighted sum of residual columns, then normalise.
+            # Mirrors:  d = r.T.dot(g) then d /= norm(d)
+            # In our convention: R is (m, nnz), g is (nnz,)
+            #   d_new = R @ g  then normalise
+            d_new = R @ g                           # (m,)
+            n_val = norm(d_new)
+            if n_val < 1e-10:
+                continue                            # degenerate — skip update
+            d_new /= n_val
+
+            # New coefficients for the signals that use atom k.
+            # Mirrors:  g = r.dot(d)  in the library (r is (nnz, m), d is (m,))
+            # In our convention: R is (m, nnz), d_new is (m,)
+            #   new_g = R^T @ d_new
+            D[:, k]  = d_new
+            X[k, I]  = R.T @ d_new                 # (nnz,)
+
+        logger.debug("AKSVD iter %d / %d done", iteration + 1, n_iter)
 
     return D, X
 
 
 # ---------------------------------------------------------------------------
-# Label / discriminative-code helpers
+# Label / discriminative-code helpers  (unchanged)
 # ---------------------------------------------------------------------------
 
 def build_label_matrix(labels: np.ndarray, num_classes: int) -> np.ndarray:
@@ -243,11 +239,10 @@ def build_discriminative_codes(
     atom_labels: np.ndarray,
 ) -> np.ndarray:
     """
-    Build the discriminative sparse-code target matrix Q ∈ {0,1}^{K × N}.
+    Build discriminative target sparse codes Q ∈ {0,1}^{K × N}.
 
-    Q[:, i] is 1 at position k iff atom k and signal y_i share the same
-    class label.  This is the core of the label consistency constraint
-    (Section 3.1 in [1]).
+    Q[k, i] = 1 iff atom k and signal y_i share the same class label.
+    This is the core of the label consistency constraint (Section 3.1 in [1]).
 
     Parameters
     ----------
@@ -262,8 +257,7 @@ def build_discriminative_codes(
     N = labels.shape[0]
     Q = np.zeros((K, N))
     for k in range(K):
-        match = labels == atom_labels[k]  # boolean mask over signals
-        Q[k, match] = 1.0
+        Q[k, labels == atom_labels[k]] = 1.0
     return Q
 
 
@@ -275,8 +269,8 @@ def init_atom_labels(
     """
     Assign a class label to each dictionary atom uniformly.
 
-    Atoms are distributed across classes as evenly as possible with the
-    remainder assigned to earlier classes (Section 3.3.1 in [1]).
+    Atoms are distributed across classes as evenly as possible.
+    (Section 3.3.1 in [1])
 
     Parameters
     ----------
@@ -289,8 +283,8 @@ def init_atom_labels(
     atom_labels : (K,) integer class indices
     """
     atoms_per_class = K // num_classes
-    remainder = K % num_classes
-    atom_labels = []
+    remainder       = K % num_classes
+    atom_labels     = []
     for c in range(num_classes):
         count = atoms_per_class + (1 if c < remainder else 0)
         atom_labels.extend([c] * count)
@@ -298,59 +292,80 @@ def init_atom_labels(
 
 
 # ---------------------------------------------------------------------------
-# Dictionary initialisation
+# Dictionary initialisation  (SVD-based, per class)
 # ---------------------------------------------------------------------------
 
-def init_dictionary_ksvd(
+def init_dictionary_svd(
     Y: np.ndarray,
     labels: np.ndarray,
     atom_labels: np.ndarray,
-    sparsity: int,
-    n_iter: int = 5,
 ) -> np.ndarray:
     """
-    Initialise D^(0) by running a few iterations of standard K-SVD
-    class-by-class and concatenating the per-class dictionaries
-    (Section 3.3.1 in [1]).
+    Initialise D^(0) using per-class truncated SVD.
+
+    Mirrors ApproximateKSVD._initialize():
+        u, s, vt = scipy.sparse.linalg.svds(X, k=n_components)
+        D = diag(s) @ vt
+        D /= row_norms
+
+    Applied per class: for each class c, run SVDs on the subset of
+    training signals Y[:, labels==c] to initialise the K_c atoms
+    assigned to that class.
+
+    If a class has fewer signals than its atom count, fall back to
+    random Gaussian atoms for that class (same fallback as the library).
 
     Parameters
     ----------
     Y           : (n, N)  all training signals
     labels      : (N,)    class index per signal
     atom_labels : (K,)    class index per atom
-    sparsity    : int
-    n_iter      : int     K-SVD iterations per class
 
     Returns
     -------
-    D0 : (n, K)  initial dictionary
+    D0 : (n, K)  initial dictionary, atoms are columns
     """
     n = Y.shape[0]
     K = atom_labels.shape[0]
-    D0 = np.zeros((n, K))
+    D0          = np.zeros((n, K))
     num_classes = int(atom_labels.max()) + 1
+    rng         = np.random.default_rng(seed=42)
 
     for c in range(num_classes):
-        # Signals and atoms belonging to class c
         signal_mask = labels == c
-        atom_mask = atom_labels == c
-        Y_c = Y[:, signal_mask]                      # (n, N_c)
-        K_c = int(atom_mask.sum())
+        atom_mask   = atom_labels == c
+        Y_c         = Y[:, signal_mask]          # (n, N_c)
+        K_c         = int(atom_mask.sum())
 
         if Y_c.shape[1] == 0 or K_c == 0:
             continue
 
-        # Initialise class-specific dictionary with random unit columns
-        rng = np.random.default_rng(seed=c)
-        D_c = rng.standard_normal((n, K_c))
+        if Y_c.shape[1] < K_c:
+            # Fewer signals than atoms for this class — random fallback
+            # (mirrors the library's  if min(X.shape) < n_components  branch)
+            D_c = rng.standard_normal((n, K_c))
+        else:
+            # SVD-based init — mirrors _initialize():
+            #   u, s, vt = svds(X, k=K_c)     where X is (N_c, n) row-major
+            #   D = diag(s) @ vt               → (K_c, n)
+            # In our column convention X_c = Y_c.T is (N_c, n):
+            try:
+                _, s, vt = scipy.sparse.linalg.svds(Y_c.T, k=K_c)
+                # svds returns singular values in ascending order — reverse
+                s  = s[::-1]
+                vt = vt[::-1, :]
+                # D_c_rows = diag(s) @ vt  →  (K_c, n)
+                D_c_rows = np.diag(s) @ vt          # (K_c, n)
+                D_c      = D_c_rows.T               # (n, K_c)  — our convention
+            except Exception:
+                # svds can fail for very small or rank-deficient matrices
+                D_c = rng.standard_normal((n, K_c))
+
+        # Normalise columns (mirrors  D /= norm(D, axis=1)[:, newaxis]
+        # in the library, which normalises rows; we normalise columns)
         col_norms = norm(D_c, axis=0, keepdims=True)
         col_norms[col_norms == 0] = 1.0
         D_c /= col_norms
-
-        X_c = np.zeros((K_c, Y_c.shape[1]))
-
-        # Run a few K-SVD iterations on the class subset
-        D_c, _ = ksvd_update(Y_c, D_c, X_c, sparsity, n_iter)
 
         D0[:, atom_mask] = D_c
 
@@ -358,32 +373,32 @@ def init_dictionary_ksvd(
 
 
 # ---------------------------------------------------------------------------
-# Ridge regression helpers (Eq. 16 & 17 in [2])
+# Ridge regression helper  (unchanged)
 # ---------------------------------------------------------------------------
 
 def ridge_regression(X: np.ndarray, T: np.ndarray, lam: float) -> np.ndarray:
     """
     Solve:  argmin_W  ||T - WX||_F^2  + lam * ||W||_F^2
 
-    Closed-form solution:  W = T @ X^T @ (X @ X^T + lam * I)^{-1}
+    Closed-form:  W = T @ X^T @ (X @ X^T + lam * I)^{-1}
 
     Parameters
     ----------
-    X   : (K, N)     sparse codes
-    T   : (m, N)     target matrix (Q or H)
-    lam : float      regularisation parameter
+    X   : (K, N)  sparse codes
+    T   : (m, N)  target matrix (Q or H)
+    lam : float   ridge regularisation parameter
 
     Returns
     -------
     W : (m, K)
     """
-    K = X.shape[0]
-    gram = X @ X.T + lam * np.eye(K)      # (K, K)
-    return T @ X.T @ np.linalg.inv(gram)  # (m, K)
+    K    = X.shape[0]
+    gram = X @ X.T + lam * np.eye(K)
+    return T @ X.T @ np.linalg.inv(gram)
 
 
 # ---------------------------------------------------------------------------
-# Extract D, A, W from the joint D_new and renormalise (Eq. 23 / Eq. 15)
+# Extract D, A, W from joint D_new and renormalise (Eq. 23 / Eq. 15)
 # ---------------------------------------------------------------------------
 
 def extract_and_renorm(
@@ -394,18 +409,13 @@ def extract_and_renorm(
     beta: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    D_new has been column-normalised jointly, so each column k satisfies:
-
-        ||[d_k; sqrt(alpha)*a_k; sqrt(beta)*w_k]||_2 = 1
-
-    Recover the original-scale d_k, a_k, w_k by dividing by ||d_k||_2
-    (the norm of just the top-n block of D_new[:, k]).
+    Recover D_hat, A_hat, W_hat from the jointly normalised D_new.
 
     Reference: Eq. 15 in [1] / Eq. 23 in [2].
 
     Parameters
     ----------
-    D_new : (n + K + num_classes, K_total)  joint dictionary after K-SVD
+    D_new : (n + K + num_classes, K)  joint dictionary after AKSVD
     n     : feature dimensionality
     K     : number of dictionary atoms
 
@@ -415,73 +425,75 @@ def extract_and_renorm(
     A_hat : (K, K)
     W_hat : (num_classes, K)
     """
-    D_block = D_new[:n, :]                          # (n, K)
-    A_block = D_new[n:n + K, :] / np.sqrt(alpha)   # (K, K)
-    W_block = D_new[n + K:, :] / np.sqrt(beta)     # (num_classes, K)
+    D_block = D_new[:n, :]
+    A_block = D_new[n:n + K, :] / np.sqrt(alpha)
+    W_block = D_new[n + K:, :]  / np.sqrt(beta)
 
-    # Per-column norm of the raw D block — used as the scale factor
-    d_norms = norm(D_block, axis=0)                 # (K,)
-    d_norms[d_norms == 0] = 1.0                     # guard against zero atom
+    d_norms          = norm(D_block, axis=0)
+    d_norms[d_norms == 0] = 1.0
 
-    D_hat = D_block / d_norms                       # renormalised dictionary
-    A_hat = A_block / d_norms                       # renormalised transform
-    W_hat = W_block / d_norms                       # renormalised classifier
+    D_hat = D_block / d_norms
+    A_hat = A_block / d_norms
+    W_hat = W_block / d_norms
     return D_hat, A_hat, W_hat
 
 
 # ---------------------------------------------------------------------------
-# Main LC-KSVD class
+# Config
 # ---------------------------------------------------------------------------
 
 @dataclass
 class LCKSVDConfig:
     """
-    Hyperparameters for LC-KSVD.
+    Hyperparameters for LC-KSVD (Approximate K-SVD variant).
 
     Attributes
     ----------
     K        : number of dictionary atoms (total, across all classes)
     sparsity : sparsity level T — each signal uses at most T atoms
-    n_iter   : number of outer LC-KSVD iterations (default 10 is often enough)
+    n_iter   : maximum number of outer AKSVD iterations
+    tol      : early-stop tolerance on reconstruction error ||Y - DX||_F.
+               Mirrors ApproximateKSVD's tol parameter.
     alpha    : weight of the discriminative sparse-code error term
-    beta     : weight of the classification error term
-               Set beta=0 to use LC-KSVD1 (no direct classifier term in
-               the joint objective); the classifier W is then fitted
-               separately after convergence.
+    beta     : weight of the classification error term (LC-KSVD2 only)
     lambda1  : ridge regularisation for W initialisation
     lambda2  : ridge regularisation for A initialisation
-    init_iter: K-SVD iterations used for dictionary initialisation
-    variant  : 'lcksvd1' or 'lcksvd2' — controls whether beta is used
-               in the joint optimisation or only post-hoc.
+    variant  : 'lcksvd1' or 'lcksvd2'
     """
-    K: int = 256
+    K: int        = 256
     sparsity: int = 30
-    n_iter: int = 10
-    alpha: float = 16.0      
-    beta: float = 4.0        
-    lambda1: float = 1e-4    # regularisation for W
-    lambda2: float = 1e-4    # regularisation for A
-    init_iter: int = 5
-    variant: str = "lcksvd2"  # 'lcksvd1' or 'lcksvd2'
+    n_iter: int   = 10
+    tol: float    = 1e-6       # ← new: mirrors ApproximateKSVD.tol
+    alpha: float  = 16.0
+    beta: float   = 4.0
+    lambda1: float = 1e-4
+    lambda2: float = 1e-4
+    variant: str  = "lcksvd2"
 
+
+# ---------------------------------------------------------------------------
+# Main LC-KSVD class  (unchanged public API)
+# ---------------------------------------------------------------------------
 
 class LCKSVD:
     """
-    Label Consistent K-SVD (LC-KSVD).
+    Label Consistent K-SVD — Approximate K-SVD variant.
 
-    Learns a discriminative dictionary D, a linear transform A, and a
-    linear classifier W simultaneously from labelled training signals Y.
+    Uses Gram-space OMP (sklearn) for sparse coding and the power-method
+    dictionary update from ApproximateKSVD instead of truncated SVD.
+    All LC-KSVD logic (label consistency, augmented system, classifier W)
+    is identical to the original.
 
     Usage
     -----
-    >>> model = LCKSVD(LCKSVDConfig(K=256, sparsity=30, variant='lcksvd2'))
-    >>> model.fit(Y_train, labels_train, num_classes=10)
+    >>> model = LCKSVD(LCKSVDConfig(K=256, sparsity=10, variant='lcksvd2'))
+    >>> model.fit(Y_train, labels_train, num_classes=2)
     >>> predictions = model.predict(Y_test)
     """
 
     def __init__(self, config: LCKSVDConfig = LCKSVDConfig()) -> None:
         self.cfg = config
-        # Learned parameters (set after .fit())
+
         self.D_hat: Optional[np.ndarray] = None
         self.A_hat: Optional[np.ndarray] = None
         self.W_hat: Optional[np.ndarray] = None
@@ -489,7 +501,7 @@ class LCKSVD:
         self.num_classes_: Optional[int] = None
 
     # ------------------------------------------------------------------
-    # Fit
+    # fit
     # ------------------------------------------------------------------
 
     def fit(
@@ -513,89 +525,83 @@ class LCKSVD:
         """
         cfg = self.cfg
         n, N = Y.shape
-        K = cfg.K
+        K    = cfg.K
         self.num_classes_ = num_classes
 
         logger.info(
-            "LC-KSVD fit: n=%d, N=%d, K=%d, sparsity=%d, variant=%s",
+            "LC-KSVD fit [AKSVD]: n=%d, N=%d, K=%d, sparsity=%d, variant=%s",
             n, N, K, cfg.sparsity, cfg.variant,
         )
 
         # ---- Step 1: Assign class labels to atoms -----------------------
-        # Each atom is permanently assigned a class label; this label is
-        # fixed throughout training (Section 3.3.1 in [2]).
         atom_labels = init_atom_labels(labels, num_classes, K)
         self.atom_labels_ = atom_labels
 
         # ---- Step 2: Build supervised targets ---------------------------
-        # H: one-hot class label matrix  (num_classes, N)
-        H = build_label_matrix(labels, num_classes)
+        H = build_label_matrix(labels, num_classes)         # (num_classes, N)
+        Q = build_discriminative_codes(labels, atom_labels) # (K, N)
 
-        # Q: discriminative target sparse codes  (K, N)
-        # Q[k, i] = 1 iff atom k and signal y_i share the same class.
-        Q = build_discriminative_codes(labels, atom_labels)
-
-        # ---- Step 3: Initialise D^(0) -----------------------------------
-        logger.info("Initialising dictionary via per-class K-SVD ...")
-        D0 = init_dictionary_ksvd(Y, labels, atom_labels, cfg.sparsity, cfg.init_iter)
+        # ---- Step 3: Initialise D^(0) via per-class SVD ----------------
+        logger.info("Initialising dictionary via per-class SVD ...")
+        D0 = init_dictionary_svd(Y, labels, atom_labels)
 
         # ---- Step 4: Initialise sparse codes X^(0) ----------------------
-        col_norms = norm(D0, axis=0, keepdims=True)
+        col_norms  = norm(D0, axis=0, keepdims=True)
         col_norms[col_norms == 0] = 1.0
-        D_normed = D0 / col_norms
-        X0 = batch_omp(Y, D_normed, cfg.sparsity)
+        D0_normed  = D0 / col_norms
+        gram       = D0_normed.T @ D0_normed          # (K, K)
+        Xy         = D0_normed.T @ Y                  # (K, N)
+        X0         = orthogonal_mp_gram(gram, Xy, n_nonzero_coefs=cfg.sparsity)  # (K, N)
 
         # ---- Step 5: Initialise A^(0) and W^(0) via ridge regression ----
-        # Eq. 16 in [2]: A = Q X^T (X X^T + lambda2 I)^{-1}
         A0 = ridge_regression(X0, Q, cfg.lambda2)
-
-        # Eq. 17 in [2]: W = H X^T (X X^T + lambda1 I)^{-1}
         W0 = ridge_regression(X0, H, cfg.lambda1)
 
-        # ---- Step 6: Build augmented (stacked) matrices -----------------
-        # Y_new = [Y; sqrt(alpha)*Q; sqrt(beta)*H]   (Eq. 11 in [2])
-        # D_new = [D; sqrt(alpha)*A; sqrt(beta)*W]
-        #
-        # For LC-KSVD1 we set beta=0 in the stacking so the classifier
-        # term is excluded from the joint optimisation.
-        if cfg.variant == "lcksvd1":
-            effective_beta = 0.0
-        else:
-            effective_beta = cfg.beta
+        # ---- Step 6: Build augmented matrices ---------------------------
+        effective_beta = 0.0 if cfg.variant == "lcksvd1" else cfg.beta
 
         Y_new = np.vstack([
             Y,
-            np.sqrt(cfg.alpha) * Q,
+            np.sqrt(cfg.alpha)      * Q,
             np.sqrt(effective_beta) * H,
-        ])  # (n + K + num_classes, N)
+        ])   # (n + K + num_classes, N)
 
         D_new = np.vstack([
             D0,
-            np.sqrt(cfg.alpha) * A0,
+            np.sqrt(cfg.alpha)      * A0,
             np.sqrt(effective_beta) * W0,
-        ])  # (n + K + num_classes, K)
+        ])   # (n + K + num_classes, K)
 
-        # L2-normalise columns of D_new (required before K-SVD)
         col_norms = norm(D_new, axis=0, keepdims=True)
         col_norms[col_norms == 0] = 1.0
         D_new /= col_norms
 
-        # ---- Step 7: Run K-SVD on the augmented system ------------------
-        logger.info("Running K-SVD on augmented system for %d iterations ...", cfg.n_iter)
-        D_new, X = ksvd_update(Y_new, D_new, X0, cfg.sparsity, cfg.n_iter)
-
-        # ---- Step 8: Extract and renormalise D, A, W --------------------
-        # Eq. 15 in [1] / Eq. 23 in [2]
-        D_hat, A_hat, W_hat = extract_and_renorm(
-            D_new, n, K, cfg.alpha, effective_beta if effective_beta > 0 else 1.0
+        # ---- Step 7: Approximate K-SVD on the augmented system ----------
+        logger.info(
+            "Running AKSVD on augmented system for up to %d iterations ...",
+            cfg.n_iter,
+        )
+        D_new, X = aksvd_update(
+            Y_new, D_new, X0, cfg.sparsity, cfg.n_iter, cfg.tol
         )
 
-        # ---- Step 9: For LC-KSVD1, refit W separately ------------------
-        # After D and A are learned, compute final sparse codes and fit W.
+        # ---- Step 8: Extract and renormalise D, A, W --------------------
+        D_hat, A_hat, W_hat = extract_and_renorm(
+            D_new, n, K,
+            cfg.alpha,
+            effective_beta if effective_beta > 0 else 1.0,
+        )
+
+        # ---- Step 9: LC-KSVD1 — refit W separately ---------------------
         if cfg.variant == "lcksvd1":
             logger.info("LC-KSVD1: fitting classifier W separately ...")
-            X_final = batch_omp(Y, D_hat, cfg.sparsity)
-            W_hat = ridge_regression(X_final, H, cfg.lambda1)
+            col_norms   = norm(D_hat, axis=0, keepdims=True)
+            col_norms[col_norms == 0] = 1.0
+            D_hat_normed = D_hat / col_norms
+            gram         = D_hat_normed.T @ D_hat_normed   # (K, K)
+            Xy           = D_hat_normed.T @ Y              # (K, N)
+            X_final      = orthogonal_mp_gram(gram, Xy, n_nonzero_coefs=cfg.sparsity)
+            W_hat        = ridge_regression(X_final, H, cfg.lambda1)
 
         self.D_hat = D_hat
         self.A_hat = A_hat
@@ -605,7 +611,7 @@ class LCKSVD:
         return self
 
     # ------------------------------------------------------------------
-    # Predict
+    # encode / predict / predict_scores  (unchanged)
     # ------------------------------------------------------------------
 
     def encode(self, Y: np.ndarray) -> np.ndarray:
@@ -622,26 +628,27 @@ class LCKSVD:
         """
         if self.D_hat is None:
             raise RuntimeError("Model is not fitted. Call .fit() first.")
-        return batch_omp(Y, self.D_hat, self.cfg.sparsity)
+        col_norms = norm(self.D_hat, axis=0, keepdims=True)
+        col_norms[col_norms == 0] = 1.0
+        D_normed  = self.D_hat / col_norms
+        gram      = D_normed.T @ D_normed     # (K, K)
+        Xy        = D_normed.T @ Y            # (K, N_test)
+        return orthogonal_mp_gram(gram, Xy, n_nonzero_coefs=self.cfg.sparsity)  # (K, N_test)
 
     def predict(self, Y: np.ndarray) -> np.ndarray:
         """
-        Classify test signals.
-
-        Classification follows Eq. 16-17 in [1]:
-          1. Compute sparse codes  x_i = OMP(y_i, D_hat, T)
-          2. Classify via          label = argmax(W_hat @ x_i)
+        Classify test signals via the internal W_hat linear classifier.
 
         Parameters
         ----------
-        Y : (n, N_test) test signal matrix
+        Y : (n, N_test)
 
         Returns
         -------
         predicted_labels : (N_test,) integer class indices
         """
-        X = self.encode(Y)
-        scores = self.W_hat @ X    # (num_classes, N_test)
+        X      = self.encode(Y)
+        scores = self.W_hat @ X
         return np.argmax(scores, axis=0)
 
     def predict_scores(self, Y: np.ndarray) -> np.ndarray:
@@ -658,3 +665,5 @@ class LCKSVD:
         """
         X = self.encode(Y)
         return self.W_hat @ X
+
+

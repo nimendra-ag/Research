@@ -103,9 +103,7 @@ class WLAKSVDInterpreter:
         self.class_counts: Counter = wl.class_counts
         self.unique_classes: List = sorted(set(training_labels))
 
-    # ─────────────────────────────────────────────────────────────────────────
     # Private helpers
-    # ─────────────────────────────────────────────────────────────────────────
 
     def _label_name(self, label: Any) -> str:
         """Return human-readable class name from label_map, or str(label)."""

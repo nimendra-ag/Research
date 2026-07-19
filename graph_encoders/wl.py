@@ -59,12 +59,9 @@ class WL(GraphEncoder):
             for word in unique_words:
                 class_df[label][word] += 1
 
-        # ── Expose to interpreter ─────────────────────────────────────────────
-        # Stored before scoring so the interpreter always has the full statistics,
-        # even for tokens that are later trimmed from the final vocabulary.
+    
         self.class_df = class_df
         self.class_counts = class_counts
-        # ─────────────────────────────────────────────────────────────────────
 
         all_words = set()
         for df in class_df.values():

@@ -1,0 +1,19 @@
+
+=========================================================================
+ WL SCORING — WORKED NUMERIC EXAMPLE (top-ranked word)
+=========================================================================
+ majority graphs : 5721
+ minority graphs : 279
+ total words     : 5819
+
+ Top word (hash): 906cec4ee868948aa03cee2550a89333
+   majority_df   = 3107   -> p_maj = 3107/5721 = 0.5431
+   minority_df   = 209   -> p_min = 209/279 = 0.7491
+   discriminative= |sqrt(0.5431) - sqrt(0.7491)| = 0.1286
+   total_presence= 0.5431 + 0.7491 = 1.2922
+   SCORE         = 1.2922 * 0.1286 = 0.1661
+
+ Sorting: 5819 words ranked by score (desc); cut at rank 2909
+          threshold score = 0.0000; kept 3339 words.
+ Final feature matrix: 6000 graphs x 3339 words
+=========================================================================

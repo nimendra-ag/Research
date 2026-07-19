@@ -420,7 +420,7 @@ class BPFA(DictLearner):
         rng: np.random.RandomState,
     ) -> float:
         """Sample gamma_eps (noise precision) from its Gamma posterior.
-
+ 
         Matches Samplephi.m.
         """
         n_elements = residual.size

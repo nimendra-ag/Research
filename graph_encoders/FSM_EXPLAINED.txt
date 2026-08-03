@@ -1,0 +1,100 @@
+FSM (Frequent Subgraph Mining) Graph Encoder — How It Works
+=============================================================
+
+File: graph_encoders/fsm.py
+Base class: graph_encoders/graph_encoder.py (GraphEncoder — just defines the
+two-method interface: generate_training_embeddings / generate_inferencing_embeddings)
+
+Big picture
+-----------
+FSM turns a graph into a fixed-length numeric vector by treating it like a
+"bag of words" document, where the "words" are small local subgraph shapes
+(topologies) found around each node. This is basically a graph analogue of
+Bag-of-Words / TF vectorization used in NLP.
+
+Step-by-step flow
+------------------
+
+1. extract_subgraphs(target_graphs)  [lines 47-56]
+   For every graph G in the input list:
+     - For every node in G, cut out its local neighborhood using
+       nx.ego_graph(G, node, radius=self.radius) — this grabs the node plus
+       everything within `radius` hops (radius=1 => the node and its direct
+       neighbors).
+     - Convert that small subgraph into a canonical string "signature" via
+       _get_subgraph_signature() (see step 2).
+     - Collect all these signatures for a graph into a list called a
+       "document" (one signature per node = one "word" per node).
+   Result: `documents` = list of lists of signature strings, one list per
+   input graph.
+
+2. _get_subgraph_signature(sub_g)  [lines 24-45]
+   Builds a canonical, order-independent string ID for a small subgraph so
+   that structurally identical subgraphs always map to the exact same
+   string (needed so counting/matching works regardless of node order).
+     - num_nodes (N), num_edges (E)
+     - degree sequence, sorted ascending, joined as "D[1,1,2]"
+     - IF nodes carry a 'label' attribute (e.g. chemical atom symbols in the
+       NCI dataset): sort all labels alphabetically and append as
+       "L[C,C,O]" — this makes the signature chemistry-aware, so a
+       carbon-carbon-oxygen triangle is distinguished from three carbons.
+     - IF no labels exist (e.g. reddit10k, plain social graphs): skip the
+       label part and just use N/E/D.
+   Example signature: "N3_E2_L[C,C,O]_D[1,1,2]"
+   This string is effectively the "vocabulary word" for that local shape.
+
+3. create_vocab(documents)  [lines 58-68]
+   - Flattens/counts every signature across ALL documents (all graphs) using
+     a global Counter — i.e. how many times each subgraph shape occurs in
+     the whole dataset.
+   - Filters out rare shapes: keeps only signatures with count >=
+     self.min_count (default 5) — this prunes noise/one-off structures.
+   - Sorts remaining shapes by frequency, descending.
+   - Trims to the top self.n_vocab (default 1000) most frequent shapes.
+   - This trimmed, ordered list becomes self.vocab — a fixed list of
+     (signature, count) pairs. self.n_vocab is updated to the actual final
+     vocab size (could be smaller than requested if not enough frequent
+     shapes exist).
+   This is the "dictionary" of known local structures the model will
+   recognize going forward — analogous to a fixed vocabulary in
+   Bag-of-Words text models.
+
+4. calc_coefficients(documents)  [lines 70-76]
+   - For each graph's document, count how many times each vocab word
+     (subgraph signature) appears in that graph, using Counter again.
+   - Builds a sparse_vector matrix of shape [num_graphs, n_vocab], where
+     entry [i][j] = how many times vocab shape j appeared in graph i.
+   - This is essentially a term-frequency (count) vector per graph, with
+     columns fixed to the order of self.vocab.
+   Result: one fixed-length numeric feature vector per input graph.
+
+5. Public interface (what other code actually calls)
+   - generate_training_embeddings(graphs)  [lines 80-85]
+       Runs steps 1-4 in order on the training set:
+       extract_subgraphs -> create_vocab (LOCKS IN self.vocab) ->
+       calc_coefficients -> returns embeddings (the Y matrix later fed into
+       the dictionary learner / classifier).
+   - generate_inferencing_embeddings(graphs)  [lines 87-93]
+       For NEW/unseen graphs (e.g. test set): extracts subgraphs the same
+       way, but does NOT rebuild the vocab — it reuses the vocab locked in
+       during training (raises an error if vocab hasn't been built yet).
+       This ensures train and test vectors have the same
+       columns/dimensionality and are directly comparable.
+
+Key parameters
+--------------
+- radius: how many hops out from each node to include in its local
+  subgraph "context" (bigger radius = larger, more complex local shapes,
+  fewer of them will repeat exactly).
+- n_vocab: max number of distinct subgraph shapes kept as vocabulary
+  (controls final embedding dimensionality).
+- min_count: minimum global occurrence count for a shape to be included in
+  the vocab (frequency threshold / noise filter — this is the "Frequent" in
+  Frequent Subgraph Mining).
+
+One-line summary
+-----------------
+FSM represents each graph as a count-vector over the most common local
+node-neighborhood "shapes" (optionally including node labels/chemistry)
+found across the whole dataset — same idea as Bag-of-Words, but the "words"
+are small subgraph topologies instead of text tokens.

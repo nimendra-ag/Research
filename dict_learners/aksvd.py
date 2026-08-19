@@ -19,6 +19,7 @@ class AKSVD(DictLearner):
                  transform_n_nonzero_coefs=self.n_non_zero_coefs)
 
     def fit(self, training_graph_embeddings):
+        training_graph_embeddings = training_graph_embeddings.astype(float)
         self._dictionary = self.aksvd.fit(training_graph_embeddings).components_
 
         # self._embedding = self.aksvd.transform(training_graph_embeddings)

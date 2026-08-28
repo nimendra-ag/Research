@@ -13,37 +13,36 @@ def load_data(name: str, size: int):
         DATASET_DIR = "datasets/NCI_full"  # change this
         graphs = []
         y = []
+        
+        filename = "1total-connect.sdf"
+        filepath = os.path.join(DATASET_DIR, filename)
 
-        for filename in os.listdir(DATASET_DIR)[0:size]:
-            if filename.endswith(".sdf"):
-                filepath = os.path.join(DATASET_DIR, filename)
+        supplier = Chem.SDMolSupplier(filepath, removeHs=False)
+        for mol in supplier:
+            if mol is None:
+                continue
 
-                supplier = Chem.SDMolSupplier(filepath, sanitize=False, removeHs=False)
-                for mol in supplier:
-                    if mol is None:
-                        continue
+            G = nx.Graph()
 
-                    G = nx.Graph()
+            # Add atoms as nodes
+            for atom in mol.GetAtoms():
+                G.add_node(
+                    atom.GetIdx(),
+                    feature=atom.GetSymbol()   # WL uses node labels
+                )
 
-                    # Add atoms as nodes
-                    for atom in mol.GetAtoms():
-                        G.add_node(
-                            atom.GetIdx(),
-                            label=atom.GetSymbol()   # WL uses node labels
-                        )
+            # Add bonds as edges
+            for bond in mol.GetBonds():
+                G.add_edge(
+                    bond.GetBeginAtomIdx(),
+                    bond.GetEndAtomIdx()
+                )
 
-                    # Add bonds as edges
-                    for bond in mol.GetBonds():
-                        G.add_edge(
-                            bond.GetBeginAtomIdx(),
-                            bond.GetEndAtomIdx()
-                        )
-
-                    # Get graph label
-                    # In NCI1, class label is stored as a molecule property
-                    label = int(float(mol.GetProp("value")))
-                    graphs.append(G)
-                    y.append(label)
+            # Get graph label
+            # In NCI1, class label is stored as a molecule property
+            label = int(float(mol.GetProp("value")))
+            graphs.append(G)
+            y.append(label)
 
         print(f"Loaded {len(graphs)} graphs")
         return graphs, y
